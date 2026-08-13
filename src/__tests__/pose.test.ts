@@ -9,7 +9,10 @@ import {
   sanitizePose, solveWorld,
 } from '../pose';
 import { Turn, projectTurn, projectYaw, turnQuat } from '../view';
-import { DRAG_TARGETS, RIG_HEIGHT, SKELETON, dragTargetFor, restJoint } from '../skeleton';
+import {
+  BODY_BLOBS, BODY_CAPSULES, DRAG_TARGETS, JOINT_IDS, RIG_HEIGHT, SKELETON,
+  dragTargetFor, restJoint,
+} from '../skeleton';
 
 const target = (joint: string) => dragTargetFor(joint as never)!;
 
@@ -41,6 +44,72 @@ describe('the rest skeleton', () => {
     // The drag unprojection assumes z = 0 for every joint; a joint with a
     // rest z would be grabbed somewhere its knob doesn't render.
     for (const j of SKELETON) expect(j.dz).toBe(0);
+  });
+});
+
+describe('the flesh on the bones', () => {
+  const world = solveWorld(defaultPose());
+  const on = (joint: string) => BODY_BLOBS.filter((b) => b.joint === joint);
+  const capsule = (a: string, b: string) =>
+    BODY_CAPSULES.find((c) => c.a === a && c.b === b)!;
+
+  it('has a waist: the spinal column is slimmer than the masses it joins', () => {
+    // What makes a bend at spine or chest read as a bend — before, one
+    // uniform sausage ran pelvis to shoulders and nothing showed.
+    const pelvis = on('root')[0];
+    const ribcage = on('chest')[0];
+    expect(capsule('root', 'spine').radius).toBeLessThan(pelvis.rx);
+    expect(capsule('spine', 'chest').radius).toBeLessThan(ribcage.rx);
+    // …and the ribcage is the broader of the two masses, so the figure
+    // tapers downward like a torso rather than a tube.
+    expect(ribcage.rx).toBeGreaterThan(capsule('root', 'spine').radius * 1.5);
+  });
+
+  it('has hips: a ball at each socket, outboard of the pelvis', () => {
+    for (const side of ['hipL', 'hipR'] as const) {
+      const ball = on(side)[0];
+      expect(ball).toBeDefined();
+      // The ball reaches wider than the pelvis pear, so the hip line shows.
+      const reach = Math.abs(world[side].x) + ball.rx;
+      expect(reach).toBeGreaterThan(on('root')[0].rx);
+      // The thigh leaves from inside it.
+      expect(ball.ry).toBeGreaterThan(capsule(side, side === 'hipL' ? 'kneeL' : 'kneeR').radius);
+    }
+  });
+
+  it('has hands: a palm with a thumb standing proud of its front edge', () => {
+    for (const side of ['wristL', 'wristR'] as const) {
+      const [palm, thumb] = on(side);
+      expect(thumb).toBeDefined();
+      // Flat: a paddle, not a ball.
+      expect(palm.ry).toBeLessThan(palm.rx / 2);
+      // The thumb pokes past the palm in +z (the way the hand faces)…
+      expect(thumb.oz + thumb.rz).toBeGreaterThan(palm.oz + palm.rz);
+      // …and sits inboard of the palm's centre, toward the wrist.
+      expect(Math.abs(thumb.ox)).toBeLessThan(Math.abs(palm.ox));
+    }
+  });
+
+  it('has feet: heel behind the ankle, toe in front, soles level', () => {
+    for (const side of ['ankleL', 'ankleR'] as const) {
+      const [heel, toe] = on(side);
+      expect(heel.oz).toBeLessThan(0); // behind
+      expect(toe.oz).toBeGreaterThan(0); // in front
+      expect(toe.rz).toBeGreaterThan(heel.rz); // the toe box is the long half
+      // One flat sole: both rest on the same line, and on the floor.
+      expect(heel.oy - heel.ry).toBeCloseTo(toe.oy - toe.ry, 6);
+      expect(world[side].y + heel.oy - heel.ry).toBeGreaterThan(0);
+      // The foot's LENGTH lies in depth — what the turn swings into view.
+      expect((toe.oz + toe.rz) - (heel.oz - heel.rz)).toBeGreaterThan(toe.rx * 3);
+    }
+  });
+
+  it('every blob hangs on a joint that exists', () => {
+    for (const b of BODY_BLOBS) expect(JOINT_IDS).toContain(b.joint);
+    for (const c of BODY_CAPSULES) {
+      expect(JOINT_IDS).toContain(c.a);
+      expect(JOINT_IDS).toContain(c.b);
+    }
   });
 });
 

@@ -1,7 +1,8 @@
 // Figgie's skeleton: an animator's stick-figure mannequin, proportioned
 // after AnimationMentor's Stewie rig — big ball head with dot eyes, thin
-// tan capsule limbs, a pear-shaped lower torso, flat paddle hands and
-// wedge feet that point at the camera.
+// tan capsule limbs, a broad ribcage over a waist over a pear-shaped
+// pelvis with hip balls, paddle hands with thumbs, and heel-and-toe feet
+// that point at the camera.
 //
 // Everything here is REST data: joints in the T-pose, the bones between
 // them, and which joints the finger may grab. Units are "rig units" with
@@ -126,8 +127,12 @@ export interface BodyCapsule {
 }
 
 export const BODY_CAPSULES: readonly BodyCapsule[] = [
-  { a: 'root', b: 'spine', radius: 4.8 },   // belly
-  { a: 'spine', b: 'chest', radius: 5.2 },  // ribcage
+  // The torso is a SPINE — a slim column — carrying two masses (the pelvis
+  // pear below, the ribcage above) rather than one undifferentiated
+  // sausage. The waist that shows between them is what makes a bend at
+  // spine or chest read as a bend at all.
+  { a: 'root', b: 'spine', radius: 3.6 },   // waist
+  { a: 'spine', b: 'chest', radius: 4.0 },  // lower ribcage
   { a: 'chest', b: 'neck', radius: 1.7 },   // neck
   { a: 'chest', b: 'shoulderL', radius: 1.7 },
   { a: 'chest', b: 'shoulderR', radius: 1.7 },
@@ -143,10 +148,11 @@ export const BODY_CAPSULES: readonly BodyCapsule[] = [
   { a: 'kneeR', b: 'ankleR', radius: 1.9 },
 ];
 
-/** An ellipsoid riding one joint: the head ball, the pelvis pear, the flat
- *  paddle hands and the wedge feet (which extend in +z — toward the viewer
- *  at rest — and are most of why the yaw turn reads as 3D). Offsets are in
- *  the joint's POSED frame for x/y (they swing with the bone) and rest z. */
+/** An ellipsoid riding one joint: the head ball, the ribcage and pelvis
+ *  masses, the hip balls, the paddle hands with their thumbs, and the
+ *  heel-and-toe feet (which extend in +z — toward the viewer at rest — and
+ *  are most of why the turn reads as 3D). Offsets are in the joint's POSED
+ *  frame for x/y (they swing with the bone) and rest z. */
 export interface BodyBlob {
   joint: JointId;
   /** Offset from the joint, in the joint's posed frame (x/y) + rest z. */
@@ -165,11 +171,29 @@ export const BODY_BLOBS: readonly BodyBlob[] = [
   { joint: 'head', ox: 0, oy: 0, oz: 0, rx: 10.2, ry: 10.2, rz: 10.2 },
   { joint: 'head', ox: -3, oy: 1.5, oz: 9.3, rx: 0.9, ry: 1.3, rz: 0.6, tint: 'eye' },
   { joint: 'head', ox: 3, oy: 1.5, oz: 9.3, rx: 0.9, ry: 1.3, rz: 0.6, tint: 'eye' },
-  { joint: 'root', ox: 0, oy: 0.5, oz: 0, rx: 6.4, ry: 5.6, rz: 5.2 }, // pelvis pear
-  { joint: 'wristL', ox: -3, oy: 0, oz: 0, rx: 3.2, ry: 1.0, rz: 2.1 },
-  { joint: 'wristR', ox: 3, oy: 0, oz: 0, rx: 3.2, ry: 1.0, rz: 2.1 },
-  { joint: 'ankleL', ox: 0, oy: -2.4, oz: 4.2, rx: 2.4, ry: 2.0, rz: 5.6 },
-  { joint: 'ankleR', ox: 0, oy: -2.4, oz: 4.2, rx: 2.4, ry: 2.0, rz: 5.6 },
+  // Ribcage: broad across, shallower front-to-back, hung BELOW the chest
+  // joint so it fills the span up from the waist. Wider than the pelvis at
+  // the shoulders, which is what gives the figure a torso shape instead of
+  // a tube — and it swings with the chest, so a twist reads.
+  { joint: 'chest', ox: 0, oy: -2.4, oz: 0, rx: 6.6, ry: 5.8, rz: 4.6 },
+  // Pelvis pear, and the two hip balls the thighs socket into: without
+  // them the legs grew straight out of the pear and the hip line vanished.
+  { joint: 'root', ox: 0, oy: 0, oz: 0, rx: 6.8, ry: 5.4, rz: 5.0 },
+  { joint: 'hipL', ox: 0, oy: 0, oz: 0, rx: 3.0, ry: 2.8, rz: 3.0 },
+  { joint: 'hipR', ox: 0, oy: 0, oz: 0, rx: 3.0, ry: 2.8, rz: 3.0 },
+  // Hands: a flat paddle palm with a thumb nub off its inboard front edge,
+  // so a turned hand reads as a hand and not a lozenge.
+  { joint: 'wristL', ox: -3.0, oy: 0, oz: 0, rx: 3.0, ry: 1.15, rz: 2.4 },
+  { joint: 'wristL', ox: -1.8, oy: 0.15, oz: 2.2, rx: 1.4, ry: 0.85, rz: 1.2 },
+  { joint: 'wristR', ox: 3.0, oy: 0, oz: 0, rx: 3.0, ry: 1.15, rz: 2.4 },
+  { joint: 'wristR', ox: 1.8, oy: 0.15, oz: 2.2, rx: 1.4, ry: 0.85, rz: 1.2 },
+  // Feet: a heel behind the ankle and a toe box in front, soles level, so
+  // the foot has a front and a back. Their length lies in +z (toward the
+  // viewer at rest), which is most of why turning the figure reads as 3D.
+  { joint: 'ankleL', ox: 0, oy: -2.5, oz: -1.4, rx: 2.2, ry: 1.9, rz: 2.3 },
+  { joint: 'ankleL', ox: 0, oy: -2.9, oz: 3.4, rx: 2.4, ry: 1.5, rz: 4.3 },
+  { joint: 'ankleR', ox: 0, oy: -2.5, oz: -1.4, rx: 2.2, ry: 1.9, rz: 2.3 },
+  { joint: 'ankleR', ox: 0, oy: -2.9, oz: 3.4, rx: 2.4, ry: 1.5, rz: 4.3 },
 ];
 
 /** Grab-knob radius drawn (and hit-tested) at each drag target, rig units.
