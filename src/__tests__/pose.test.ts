@@ -166,6 +166,85 @@ describe('2-bone IK (wrists and ankles)', () => {
   });
 });
 
+// A host's IK toggle: with ik = false a chain end poses as plain FK — only
+// the grabbed joint moves; its parent (the elbow / knee) and everything
+// else stays nailed in place.
+describe('IK off (ik = false): chain ends pose as plain FK', () => {
+  it('swings the wrist about an elbow that does not move', () => {
+    const w0 = solveWorld(defaultPose());
+    // Pull the wrist to straight below the elbow (one forearm length away).
+    const p = resolveDrag(
+      defaultPose(), target('wristL'), w0.elbowL.x, w0.elbowL.y - 12.5, 0, false,
+    );
+    const w = solveWorld(p);
+    // Only the forearm's rotation changed — nothing upstream moved.
+    expect(Object.keys(p.angles)).toEqual(['wristL']);
+    expect(w.elbowL.x).toBeCloseTo(w0.elbowL.x, 6);
+    expect(w.elbowL.y).toBeCloseTo(w0.elbowL.y, 6);
+    expect(w.shoulderL.x).toBeCloseTo(w0.shoulderL.x, 6);
+    expect(w.shoulderL.y).toBeCloseTo(w0.shoulderL.y, 6);
+    // The wrist orbits the elbow at bone length onto the finger's angle.
+    expect(w.wristL.x).toBeCloseTo(w0.elbowL.x, 4);
+    expect(w.wristL.y).toBeCloseTo(w0.elbowL.y - 12.5, 4);
+  });
+
+  it('swings the ankle about a knee that does not move', () => {
+    const w0 = solveWorld(defaultPose());
+    const p = resolveDrag(
+      defaultPose(), target('ankleL'), w0.kneeL.x + 20, w0.kneeL.y, 0, false,
+    );
+    const w = solveWorld(p);
+    expect(Object.keys(p.angles)).toEqual(['ankleL']);
+    expect(w.kneeL.x).toBeCloseTo(w0.kneeL.x, 6);
+    expect(w.kneeL.y).toBeCloseTo(w0.kneeL.y, 6);
+    expect(w.hipL.x).toBeCloseTo(w0.hipL.x, 6);
+    expect(w.hipL.y).toBeCloseTo(w0.hipL.y, 6);
+    // Shin length preserved; ankle tracks the finger's direction.
+    const shin = Math.hypot(w.ankleL.x - w.kneeL.x, w.ankleL.y - w.kneeL.y);
+    const shin0 = Math.hypot(w0.ankleL.x - w0.kneeL.x, w0.ankleL.y - w0.kneeL.y);
+    expect(shin).toBeCloseTo(shin0, 5);
+    expect(w.ankleL.x).toBeGreaterThan(w.kneeL.x);
+    expect(Math.abs(w.ankleL.y - w.kneeL.y)).toBeLessThan(1e-4);
+  });
+
+  it('still rotates about the view axis when yawed — the parent stays put', () => {
+    const YAW = 0.9;
+    const w0 = solveWorld(defaultPose());
+    const e0 = projectYaw(w0.elbowL.x, w0.elbowL.y, w0.elbowL.z, YAW, w0.root.x);
+    const p = resolveDrag(
+      defaultPose(), target('wristL'), e0.px, e0.py - 10, YAW, false,
+    );
+    const w = solveWorld(p);
+    // The elbow's world position is untouched by the yawed wrist swing.
+    expect(w.elbowL.x).toBeCloseTo(w0.elbowL.x, 6);
+    expect(w.elbowL.y).toBeCloseTo(w0.elbowL.y, 6);
+    expect(w.elbowL.z).toBeCloseTo(w0.elbowL.z, 6);
+    // And the wrist's PROJECTION orbits it in the view plane at the
+    // apparent radius, pointing at the finger.
+    const wp = projectYaw(w.wristL.x, w.wristL.y, w.wristL.z, YAW, w0.root.x);
+    const r0 = Math.hypot(
+      projectYaw(w0.wristL.x, w0.wristL.y, w0.wristL.z, YAW, w0.root.x).px - e0.px,
+      projectYaw(w0.wristL.x, w0.wristL.y, w0.wristL.z, YAW, w0.root.x).py - e0.py,
+    );
+    expect(Math.hypot(wp.px - e0.px, wp.py - e0.py)).toBeCloseTo(r0, 4);
+    expect(Math.atan2(wp.py - e0.py, wp.px - e0.px)).toBeCloseTo(Math.atan2(-10, 0), 4);
+  });
+
+  it('changes nothing for FK and translate targets, and defaults to IK', () => {
+    const w0 = solveWorld(defaultPose());
+    const withFlag = resolveDrag(defaultPose(), target('elbowL'), -20, 90, 0, false);
+    const without = resolveDrag(defaultPose(), target('elbowL'), -20, 90, 0);
+    expect(poseEquals(withFlag, without, 1e-9)).toBe(true);
+    // Omitting the flag is IK: the wrist lands ON the target, elbow bends.
+    const tx = w0.shoulderL.x - 10;
+    const ty = w0.shoulderL.y - 18;
+    const ik = resolveDrag(defaultPose(), target('wristL'), tx, ty);
+    const w = solveWorld(ik);
+    expect(w.wristL.x).toBeCloseTo(tx, 4);
+    expect(w.wristL.y).toBeCloseTo(ty, 4);
+  });
+});
+
 describe('pose serialization', () => {
   it('round-trips through JSON untouched', () => {
     let p = defaultPose();

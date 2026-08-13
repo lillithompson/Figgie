@@ -129,6 +129,12 @@ const MIN_APPARENT_RADIUS = 0.75;
  *    when the projected reach allows, the current bend side is kept, and
  *    whatever depth the chain held is preserved.
  *
+ * `ik = false` (a host's IK toggle) poses a chain end as plain FK instead:
+ * the end bone swings about its parent — the elbow / knee stays nailed in
+ * place, as does every other joint — so only the grabbed wrist or ankle
+ * moves. The rotation is still about the view axis, exactly like every
+ * other drag. FK and translate targets ignore the flag.
+ *
  * Returns a NEW pose; the input is never mutated.
  */
 export function resolveDrag(
@@ -137,6 +143,7 @@ export function resolveDrag(
   viewX: number,
   viewY: number,
   yaw = 0,
+  ik = true,
 ): FiggiePose {
   if (target.kind === 'translate') {
     const rest = restJoint('root');
@@ -153,7 +160,10 @@ export function resolveDrag(
   const [nx, ny, nz] = viewAxis(yaw);
   const proj = (j: WorldJoint) => projectYaw(j.x, j.y, j.z, yaw, pivotX);
 
-  if (target.kind === 'fk') {
+  // With IK off, a chain end (wrist / ankle) IS an FK joint: the bone
+  // ending at it rotates about its parent (the elbow / knee, which does
+  // not move), the same rule every mid-chain joint follows.
+  if (target.kind === 'fk' || !ik) {
     const joint = restJoint(target.joint);
     const parent = world[joint.parent!];
     const pp = proj(parent);
