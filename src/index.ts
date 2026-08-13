@@ -2,8 +2,9 @@
 //
 //   const rig = createFiggie(canvas, { onPoseChange });
 //   rig.setYaw(0.4);           // turn about the up axis (view only)
+//   rig.setYaw({ upX: 1, upY: 0, yaw: 0.4 }); // …or any rig-plane axis
 //   rig.getPose();             // small JSON-able object
-//   projectSilhouette(pose, yaw); // depth-sorted 2D shapes for baking
+//   projectSilhouette(pose, turn); // depth-sorted 2D shapes for baking
 //
 // The component is fully self-contained (WebGL, pointer gestures, render
 // scheduling); the pure modules it is built from are exported alongside so
@@ -27,8 +28,8 @@ export {
 export type { DragTarget, JointId } from './skeleton';
 export { posePrimitives, projectSilhouette } from './primitives';
 export type { FlatCapsule, FlatEllipse, FlatPrimitive } from './primitives';
-export { fitStage, projectYaw, STAGE } from './view';
-export type { Fit } from './view';
+export { fitStage, projectTurn, projectYaw, STAGE, turnQuat } from './view';
+export type { Fit, Turn, TurnLike } from './view';
 export { hitTest, HIT_RADIUS_PX } from './hit';
 export { DEFAULT_COLORS } from './render';
 export type { RigColors } from './render';

@@ -8,8 +8,8 @@
 
 import { BODY_BLOBS, BODY_CAPSULES, DRAG_TARGETS, JointId, knobRadius } from './skeleton';
 import { FiggiePose, WorldJoints, solveWorld } from './pose';
-import { Quat, quatRotate, quatToMat3 } from './quat';
-import { projectYaw } from './view';
+import { Quat, quatMul, quatRotate, quatToMat3 } from './quat';
+import { TurnLike, projectTurn, turnQuat } from './view';
 
 export interface WorldCapsule {
   kind: 'capsule';
@@ -99,24 +99,26 @@ export interface FlatEllipse {
 export type FlatPrimitive = FlatCapsule | FlatEllipse;
 
 /**
- * The figure under `yaw`, flattened to 2D outlines in rig units, sorted
+ * The figure under `turn`, flattened to 2D outlines in rig units, sorted
  * back → front (painter's order — an eye on the far side of the head lands
  * behind it and disappears, exactly as the depth buffer hides it in GL).
  * Knobs are affordance, not figure, and are left out.
  *
  * An orthographic projection maps a sphere to a circle of the same radius
- * and an ellipsoid to an ellipse; the ellipse of a yawed ellipsoid comes
+ * and an ellipsoid to an ellipse; the ellipse of a turned ellipsoid comes
  * from the 2×2 eigenproblem of A·Aᵀ (A = the projected axis matrix), which
  * is exact — not a bounding approximation.
  */
-export function projectSilhouette(pose: FiggiePose, yaw: number): FlatPrimitive[] {
+export function projectSilhouette(pose: FiggiePose, turn: TurnLike): FlatPrimitive[] {
   const world = solveWorld(pose);
+  const q = turnQuat(turn);
   const pivotX = world.root.x;
+  const pivotY = world.root.y;
   const out: FlatPrimitive[] = [];
   for (const p of posePrimitives(pose, world)) {
     if (p.kind === 'capsule') {
-      const a = projectYaw(p.ax, p.ay, p.az, yaw, pivotX);
-      const b = projectYaw(p.bx, p.by, p.bz, yaw, pivotX);
+      const a = projectTurn(p.ax, p.ay, p.az, q, pivotX, pivotY);
+      const b = projectTurn(p.bx, p.by, p.bz, q, pivotX, pivotY);
       out.push({
         kind: 'capsule',
         ax: a.px, ay: a.py, bx: b.px, by: b.py,
@@ -124,8 +126,8 @@ export function projectSilhouette(pose: FiggiePose, yaw: number): FlatPrimitive[
         depth: (a.pz + b.pz) / 2,
       });
     } else if (p.kind === 'blob') {
-      const c = projectYaw(p.cx, p.cy, p.cz, yaw, pivotX);
-      out.push({ ...projectedEllipse(p, yaw), cx: c.px, cy: c.py, depth: c.pz, ...(p.tint ? { tint: p.tint } : {}) });
+      const c = projectTurn(p.cx, p.cy, p.cz, q, pivotX, pivotY);
+      out.push({ ...projectedEllipse(p, q), cx: c.px, cy: c.py, depth: c.pz, ...(p.tint ? { tint: p.tint } : {}) });
     }
   }
   out.sort((a, b) => a.depth - b.depth);
@@ -133,20 +135,17 @@ export function projectSilhouette(pose: FiggiePose, yaw: number): FlatPrimitive[
 }
 
 /** Exact outline of an ellipsoid (axes scaled by rx/ry/rz, oriented by the
- *  joint's 3D rotation, then yawed about y and orthographically
+ *  joint's 3D rotation, then turned by the view quat and orthographically
  *  projected). */
 function projectedEllipse(
-  blob: WorldBlob, yaw: number,
+  blob: WorldBlob, q: Quat,
 ): { kind: 'ellipse'; rx: number; ry: number; rot: number } {
-  const cy = Math.cos(yaw);
-  const sy = Math.sin(yaw);
-  const m = quatToMat3(blob.rot); // column-major
-  // A = P · Ry(yaw) · R · S, a 2×3: row 1 is the screen-x image of each
-  // scaled axis (Ry mixes world x and z), row 2 the screen-y image (y is
-  // untouched by the yaw).
-  const a11 = (cy * m[0] + sy * m[2]) * blob.rx;
-  const a12 = (cy * m[3] + sy * m[5]) * blob.ry;
-  const a13 = (cy * m[6] + sy * m[8]) * blob.rz;
+  // A = P · V · R · S, a 2×3: rows 1–2 of the composed rotation, columns
+  // scaled by the semi-axes — the screen image of each ellipsoid axis.
+  const m = quatToMat3(quatMul(q, blob.rot)); // column-major
+  const a11 = m[0] * blob.rx;
+  const a12 = m[3] * blob.ry;
+  const a13 = m[6] * blob.rz;
   const a21 = m[1] * blob.rx;
   const a22 = m[4] * blob.ry;
   const a23 = m[7] * blob.rz;

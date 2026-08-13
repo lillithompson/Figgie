@@ -11,7 +11,7 @@
 
 import { Mesh, unitCylinder, unitSphere } from './mesh';
 import { WorldPrimitive } from './primitives';
-import { quatFromAxisAngle, quatToMat3 } from './quat';
+import { Quat, quatFromAxisAngle, quatToMat3 } from './quat';
 import { Fit } from './view';
 
 export interface RigColors {
@@ -31,9 +31,11 @@ export const DEFAULT_COLORS: RigColors = {
 
 export interface DrawInput {
   primitives: readonly WorldPrimitive[];
-  yaw: number;
-  /** Vertical axis the yaw turns about (the figure's root x). */
+  /** The view rotation (turnQuat of the host's turn). */
+  turn: Quat;
+  /** The point the turn pivots about (the figure's root). */
   pivotX: number;
+  pivotY: number;
   fit: Fit;
   cssWidth: number;
   cssHeight: number;
@@ -91,6 +93,8 @@ export function createRenderer(gl: WebGLRenderingContext): Renderer {
   // Scratch matrices — reused across every draw, zero per-frame allocation.
   const mvp = new Float32Array(16);
   const nrm = new Float32Array(9);
+  /** The view rotation as a column-major 3×3 — set once per frame. */
+  let view: readonly number[] = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 
   let bound: GlMesh | null = null;
   const bind = (mesh: GlMesh) => {
@@ -105,7 +109,7 @@ export function createRenderer(gl: WebGLRenderingContext): Renderer {
   /** No rotation, for spheres. */
   const IDENTITY3: readonly number[] = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 
-  /** One primitive: view(yaw about pivot) · T(c) · R · S, plus the
+  /** One primitive: view(turn about the pivot) · T(c) · R · S, plus the
    *  matching normal transform, composed straight into the scratch mats.
    *  `r` is a column-major world-space 3×3 rotation. */
   const setTransforms = (
@@ -114,24 +118,24 @@ export function createRenderer(gl: WebGLRenderingContext): Renderer {
     r: readonly number[],
     sx: number, sy: number, sz: number,
   ) => {
-    const { fit, cssWidth, cssHeight, yaw, pivotX } = input;
-    const cyw = Math.cos(yaw);
-    const syw = Math.sin(yaw);
-    // View = yaw about the vertical axis through pivotX:
-    // x' = px + (x-px)cy + z·sy, y' = y, z' = -(x-px)sy + z·cy.
-    // Model basis columns (R·S) taken through the view's linear part.
-    const exx = (r[0] * cyw + r[2] * syw) * sx;
-    const exy = r[1] * sx;
-    const exz = (-r[0] * syw + r[2] * cyw) * sx;
-    const eyx = (r[3] * cyw + r[5] * syw) * sy;
-    const eyy = r[4] * sy;
-    const eyz = (-r[3] * syw + r[5] * cyw) * sy;
-    const ezx = (r[6] * cyw + r[8] * syw) * sz;
-    const ezy = r[7] * sz;
-    const ezz = (-r[6] * syw + r[8] * cyw) * sz;
-    const ox = pivotX + (cx - pivotX) * cyw + cz * syw;
-    const oy = cy;
-    const oz = -(cx - pivotX) * syw + cz * cyw;
+    const { fit, cssWidth, cssHeight, pivotX, pivotY } = input;
+    // Model basis columns (R·S) taken through the view rotation, and the
+    // primitive's origin turned about the pivot point.
+    const v = view;
+    const exx = (v[0] * r[0] + v[3] * r[1] + v[6] * r[2]) * sx;
+    const exy = (v[1] * r[0] + v[4] * r[1] + v[7] * r[2]) * sx;
+    const exz = (v[2] * r[0] + v[5] * r[1] + v[8] * r[2]) * sx;
+    const eyx = (v[0] * r[3] + v[3] * r[4] + v[6] * r[5]) * sy;
+    const eyy = (v[1] * r[3] + v[4] * r[4] + v[7] * r[5]) * sy;
+    const eyz = (v[2] * r[3] + v[5] * r[4] + v[8] * r[5]) * sy;
+    const ezx = (v[0] * r[6] + v[3] * r[7] + v[6] * r[8]) * sz;
+    const ezy = (v[1] * r[6] + v[4] * r[7] + v[7] * r[8]) * sz;
+    const ezz = (v[2] * r[6] + v[5] * r[7] + v[8] * r[8]) * sz;
+    const dx = cx - pivotX;
+    const dy = cy - pivotY;
+    const ox = pivotX + v[0] * dx + v[3] * dy + v[6] * cz;
+    const oy = pivotY + v[1] * dx + v[4] * dy + v[7] * cz;
+    const oz = v[2] * dx + v[5] * dy + v[8] * cz;
     // Ortho: ndcX = (x - centerX)·2s/w, ndcY = (y - centerY)·2s/h,
     // ndcZ = -z/150 (nearer → smaller depth). Center from the fit.
     const kx = 2 * fit.scale / cssWidth;
@@ -177,6 +181,7 @@ export function createRenderer(gl: WebGLRenderingContext): Renderer {
   return {
     draw(input: DrawInput) {
       const { colors } = input;
+      view = quatToMat3(input.turn);
       gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       gl.useProgram(program);

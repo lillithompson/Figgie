@@ -17,13 +17,14 @@ import { JointId } from './skeleton';
 import { Hit, hitTest } from './hit';
 import { posePrimitives } from './primitives';
 import { DEFAULT_COLORS, RigColors, Renderer, createRenderer } from './render';
-import { Fit, fitStage } from './view';
+import { Fit, TurnLike, fitStage, turnQuat } from './view';
 
 export interface FiggieOptions {
   /** Starting pose; anything JSON-shaped is sanitized. Default: T-pose. */
   initialPose?: unknown;
-  /** Starting yaw (radians about the up axis). Default 0 (facing front). */
-  initialYaw?: number;
+  /** Starting turn: yaw radians about the up axis, or a full `Turn` about
+   *  any rig-plane axis. Default 0 (facing front). */
+  initialYaw?: TurnLike;
   /** Fired on every pose change: live per pointer-move during a drag, and
    *  once more with `live: false` when the finger lifts (the commit). */
   onPoseChange?(pose: FiggiePose, meta: { live: boolean }): void;
@@ -40,9 +41,9 @@ export interface FiggieOptions {
 export interface FiggieHandle {
   getPose(): FiggiePose;
   setPose(pose: unknown): void;
-  getYaw(): number;
-  setYaw(yaw: number): void;
-  /** Back to the T-pose (yaw untouched — the slider owns it). */
+  getYaw(): TurnLike;
+  setYaw(yaw: TurnLike): void;
+  /** Back to the T-pose (turn untouched — the slider owns it). */
   reset(): void;
   /** Light one joint's knob in the accent colour (a host-driven grab);
    *  null clears it. The component's own drags manage this themselves. */
@@ -69,7 +70,7 @@ export function createFiggie(canvas: HTMLCanvasElement, opts: FiggieOptions = {}
   const renderer: Renderer = createRenderer(gl);
 
   let pose = sanitizePose(opts.initialPose ?? defaultPose());
-  let yaw = opts.initialYaw ?? 0;
+  let turn: TurnLike = opts.initialYaw ?? 0;
   let fit: Fit = fitStage(1, 1);
   let cssWidth = 1;
   let cssHeight = 1;
@@ -84,10 +85,12 @@ export function createFiggie(canvas: HTMLCanvasElement, opts: FiggieOptions = {}
     requestAnimationFrame(() => {
       framePending = false;
       if (destroyed) return;
+      const root = solveWorld(pose).root;
       renderer.draw({
         primitives: posePrimitives(pose),
-        yaw,
-        pivotX: solveWorld(pose).root.x,
+        turn: turnQuat(turn),
+        pivotX: root.x,
+        pivotY: root.y,
         fit,
         cssWidth,
         cssHeight,
@@ -126,7 +129,7 @@ export function createFiggie(canvas: HTMLCanvasElement, opts: FiggieOptions = {}
   const onPointerDown = (e: PointerEvent) => {
     if (!e.isPrimary) return;
     const rect = canvas.getBoundingClientRect();
-    const hit = hitTest(pose, yaw, fit, e.clientX - rect.left, e.clientY - rect.top);
+    const hit = hitTest(pose, turn, fit, e.clientX - rect.left, e.clientY - rect.top);
     if (!hit) return;
     grab = hit;
     canvas.setPointerCapture?.(e.pointerId);
@@ -137,7 +140,7 @@ export function createFiggie(canvas: HTMLCanvasElement, opts: FiggieOptions = {}
   const onPointerMove = (e: PointerEvent) => {
     if (!grab || !e.isPrimary) return;
     const p = viewPointAt(e);
-    pose = resolveDrag(pose, grab.target, p.x - grab.grabDx, p.y - grab.grabDy, yaw);
+    pose = resolveDrag(pose, grab.target, p.x - grab.grabDx, p.y - grab.grabDy, turn);
     opts.onPoseChange?.(pose, { live: true });
     requestRender();
     e.preventDefault();
@@ -175,9 +178,10 @@ export function createFiggie(canvas: HTMLCanvasElement, opts: FiggieOptions = {}
       pose = sanitizePose(next);
       requestRender();
     },
-    getYaw: () => yaw,
-    setYaw(next: number) {
-      yaw = Number.isFinite(next) ? next : 0;
+    getYaw: () => turn,
+    setYaw(next: TurnLike) {
+      // Kept as given; turnQuat sanitizes non-finite parts at every use.
+      turn = typeof next === 'number' && !Number.isFinite(next) ? 0 : next;
       requestRender();
     },
     reset() {

@@ -1,13 +1,14 @@
 /**
- * The one camera: yaw about the up axis as a pure view transform, and the
- * canvas fit. Plus the projected silhouette hosts bake from.
+ * The one camera: a turn about a rig-plane axis as a pure view transform
+ * (yaw about the up axis being the classic case), and the canvas fit.
+ * Plus the projected silhouette hosts bake from.
  */
 
-import { defaultPose, resolveDrag, solveWorld } from '../pose';
+import { defaultPose, resolveDrag, solveWorld, viewAxis } from '../pose';
 import { dragTargetFor } from '../skeleton';
 import { hitTest, HIT_RADIUS_PX } from '../hit';
 import { projectSilhouette } from '../primitives';
-import { STAGE, fitStage, projectYaw } from '../view';
+import { STAGE, fitStage, projectTurn, projectYaw, turnQuat } from '../view';
 
 describe('projectYaw', () => {
   it('is the identity at yaw 0', () => {
@@ -33,6 +34,72 @@ describe('projectYaw', () => {
     for (const yaw of [0.3, 1.2, 2.8, -2.1]) {
       expect(projectYaw(7, 42, 3, yaw, 0).py).toBe(42);
     }
+  });
+});
+
+describe('projectTurn (a general rig-plane turn axis)', () => {
+  it('a number turn IS projectYaw — the classic view, unchanged', () => {
+    for (const yaw of [0, 0.7, -1.9]) {
+      const q = turnQuat(yaw);
+      const a = projectTurn(11, 30, 4, q, 3, 60);
+      const b = projectYaw(11, 30, 4, yaw, 3);
+      expect(a.px).toBeCloseTo(b.px, 9);
+      expect(a.py).toBeCloseTo(b.py, 9);
+      expect(a.pz).toBeCloseTo(b.pz, 9);
+    }
+  });
+
+  it('{upX: 0, upY: 1} is the same rotation as the plain scalar', () => {
+    const a = projectTurn(7, 80, 5, turnQuat({ upX: 0, upY: 1, yaw: 0.9 }), 2, 50);
+    const b = projectYaw(7, 80, 5, 0.9, 2);
+    expect(a.px).toBeCloseTo(b.px, 9);
+    expect(a.py).toBeCloseTo(b.py, 9);
+    expect(a.pz).toBeCloseTo(b.pz, 9);
+  });
+
+  it('a sideways axis (1, 0) turns depth into ±y and never touches x', () => {
+    // The axis a host derives when its rig object is rotated 90° in a
+    // scene: what shows as "up" there is the rig's own x. A point toward
+    // the viewer (z > 0) swings along −y (right-hand rule about +x)…
+    const q = turnQuat({ upX: 1, upY: 0, yaw: Math.PI / 2 });
+    const p = projectTurn(0, 0, 9, q, 0, 0);
+    expect(p.px).toBeCloseTo(0, 9);
+    expect(p.py).toBeCloseTo(-9, 9);
+    expect(p.pz).toBeCloseTo(0, 9);
+    // …and a point ON the axis holds still, exactly like the yaw pivot.
+    const on = projectTurn(6, 0, 0, q, 0, 0);
+    expect(on.px).toBeCloseTo(6, 9);
+    expect(on.py).toBeCloseTo(0, 9);
+  });
+
+  it('pivots about the point, so a moved root stays put under any axis', () => {
+    const q = turnQuat({ upX: 0.6, upY: 0.8, yaw: 1.1 });
+    const p = projectTurn(12, -7, 0, q, 12, -7);
+    expect(p.px).toBeCloseTo(12, 9);
+    expect(p.py).toBeCloseTo(-7, 9);
+    expect(p.pz).toBeCloseTo(0, 9);
+  });
+
+  it('a degenerate or non-finite turn falls back to the up axis / 0', () => {
+    const p = projectTurn(3, 4, 5, turnQuat({ upX: 0, upY: 0, yaw: 0.5 }), 0, 0);
+    const b = projectYaw(3, 4, 5, 0.5, 0);
+    expect(p.px).toBeCloseTo(b.px, 9);
+    const n = projectTurn(3, 4, 5, turnQuat(Number.NaN), 0, 0);
+    expect(n.px).toBeCloseTo(3, 9);
+    expect(n.pz).toBeCloseTo(5, 9);
+  });
+
+  it('viewAxis is the turned view normal — drags rotate about it', () => {
+    // Classic yaw: the long-standing (-sin, 0, cos).
+    const [ax, ay, az] = viewAxis(0.8);
+    expect(ax).toBeCloseTo(-Math.sin(0.8), 9);
+    expect(ay).toBeCloseTo(0, 9);
+    expect(az).toBeCloseTo(Math.cos(0.8), 9);
+    // Sideways axis: the normal tilts through y instead of x.
+    const [bx, by, bz] = viewAxis({ upX: 1, upY: 0, yaw: 0.8 });
+    expect(bx).toBeCloseTo(0, 9);
+    expect(by).toBeCloseTo(Math.sin(0.8), 9);
+    expect(bz).toBeCloseTo(Math.cos(0.8), 9);
   });
 });
 

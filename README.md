@@ -12,6 +12,7 @@ const rig = createFiggie(canvas, {
   onPoseChange: (pose, { live }) => { /* pose is plain JSON */ },
 });
 rig.setYaw(0.5);      // turn the figure about its up axis (view only)
+rig.setYaw({ upX: 1, upY: 0, yaw: 0.5 }); // …or about any rig-plane axis
 rig.getPose();        // serialize; rig.setPose(json) restores
 rig.destroy();
 ```
@@ -36,9 +37,12 @@ quarter-turn and swing the same arm forward.
 
 Pose state is one unit quaternion per bone plus a root offset — a small
 JSON object (`sanitizePose` makes loading it unconditionally safe, and
-reads the older one-angle-per-bone planar format losslessly). The **yaw**
-turn about the up axis is a *view* transform, not part of the pose. There
-is no other camera control.
+reads the older one-angle-per-bone planar format losslessly). The **turn**
+is a *view* transform, not part of the pose: a plain number is the classic
+yaw about the up axis; a full `Turn { upX, upY, yaw }` spins about any
+axis in the rig's plane — for hosts that show the rig through their own
+transform (mirrored, rotated) and want their turn control to track the
+axis the viewer sees as vertical. There is no other camera control.
 
 ## Rendering
 
@@ -48,7 +52,7 @@ WebGL1, two static meshes (sphere + open cylinder), one lambert program,
 costs one small frame per pointer move. Comfortable at 90 fps inside an
 iOS WebView.
 
-`projectSilhouette(pose, yaw)` returns the same figure as depth-sorted 2D
+`projectSilhouette(pose, turn)` returns the same figure as depth-sorted 2D
 capsules and exact projected ellipses, so a host can bake the pose into
 its own vector scene (thumbnails, exports) without touching GL.
 

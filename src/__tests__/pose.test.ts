@@ -8,7 +8,7 @@ import {
   FiggiePose, ROOT_RANGE, defaultPose, normalizeAngle, poseEquals, resolveDrag,
   sanitizePose, solveWorld,
 } from '../pose';
-import { projectYaw } from '../view';
+import { Turn, projectTurn, projectYaw, turnQuat } from '../view';
 import { DRAG_TARGETS, RIG_HEIGHT, SKELETON, dragTargetFor, restJoint } from '../skeleton';
 
 const target = (joint: string) => dragTargetFor(joint as never)!;
@@ -385,6 +385,60 @@ describe('view-normal drags (yaw ≠ 0)', () => {
     const sp = projectYaw(w0.shoulderL.x, w0.shoulderL.y, w0.shoulderL.z, Math.PI / 2, w0.root.x);
     const p = resolveDrag(defaultPose(), target('elbowL'), sp.px + 10, sp.py + 5, Math.PI / 2);
     expect(poseEquals(p, defaultPose())).toBe(true);
+  });
+});
+
+// A host whose rig object is transformed in ITS scene passes a full Turn:
+// the same interaction contract must hold about any rig-plane axis.
+describe('drags under a general turn axis', () => {
+  const TURN: Turn = { upX: 1, upY: 0, yaw: 0.9 }; // a 90°-rotated host scene
+  const q = turnQuat(TURN);
+  const proj = (j: { x: number; y: number; z: number }, root: { x: number; y: number }) =>
+    projectTurn(j.x, j.y, j.z, q, root.x, root.y);
+
+  it('orbits a dragged joint at constant apparent radius, tracking the finger', () => {
+    const w0 = solveWorld(defaultPose());
+    const sp = proj(w0.shoulderL, w0.root);
+    const ep = proj(w0.elbowL, w0.root);
+    const r0 = Math.hypot(ep.px - sp.px, ep.py - sp.py);
+    for (const ang of [0.5, 2.1, -1.2]) {
+      const p = resolveDrag(
+        defaultPose(), target('elbowL'),
+        sp.px + 30 * Math.cos(ang), sp.py + 30 * Math.sin(ang), TURN,
+      );
+      const w = solveWorld(p);
+      const jp = proj(w.elbowL, w.root);
+      expect(Math.hypot(jp.px - sp.px, jp.py - sp.py)).toBeCloseTo(r0, 5);
+      expect(Math.atan2(jp.py - sp.py, jp.px - sp.px)).toBeCloseTo(ang, 5);
+      // The shoulder never moves; the bone keeps its true length.
+      expect(w.shoulderL.x).toBeCloseTo(w0.shoulderL.x, 6);
+      expect(w.shoulderL.y).toBeCloseTo(w0.shoulderL.y, 6);
+      expect(Math.hypot(
+        w.elbowL.x - w.shoulderL.x, w.elbowL.y - w.shoulderL.y, w.elbowL.z - w.shoulderL.z,
+      )).toBeCloseTo(13.5, 6);
+    }
+  });
+
+  it('IK lands the wrist under the finger in the turned view', () => {
+    const w0 = solveWorld(defaultPose());
+    const sp = proj(w0.shoulderL, w0.root);
+    const tx = sp.px - 14;
+    const ty = sp.py - 9;
+    const p = resolveDrag(defaultPose(), target('wristL'), tx, ty, TURN);
+    const w = solveWorld(p);
+    const wp = proj(w.wristL, w.root);
+    expect(wp.px).toBeCloseTo(tx, 3);
+    expect(wp.py).toBeCloseTo(ty, 3);
+    expect(Math.hypot(
+      w.wristL.x - w.elbowL.x, w.wristL.y - w.elbowL.y, w.wristL.z - w.elbowL.z,
+    )).toBeCloseTo(12.5, 5);
+  });
+
+  it('the root still tracks the finger exactly — it IS the pivot', () => {
+    const p = resolveDrag(defaultPose(), target('root'), 17, 40, TURN);
+    const w = solveWorld(p);
+    expect(w.root.x).toBeCloseTo(17, 6);
+    expect(w.root.y).toBeCloseTo(40, 6);
   });
 });
 

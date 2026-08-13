@@ -25,7 +25,7 @@ import {
   Quat, QUAT_IDENTITY, quatEquals, quatFromAxisAngle, quatInv, quatIsIdentity,
   quatMul, quatNormalize, quatRotate,
 } from './quat';
-import { projectYaw } from './view';
+import { TurnLike, projectTurn, turnQuat } from './view';
 
 export interface FiggiePose {
   /** Format version. v1 stored planar angles (radians about z) in `angles`;
@@ -93,13 +93,14 @@ export function solveWorld(pose: FiggiePose): WorldJoints {
   return out;
 }
 
-/** The world-space axis normal to the viewport at `yaw` — the ONE axis
- *  every drag rotates about. It is e1 × e2 of projectYaw's screen basis
- *  (e1 = (cos yaw, 0, sin yaw) maps to +screen-x, e2 = ŷ), so a positive
- *  rotation about it moves a projected point counter-clockwise in view
- *  coordinates — the same convention atan2 reads. */
-export function viewAxis(yaw: number): [number, number, number] {
-  return [-Math.sin(yaw), 0, Math.cos(yaw)];
+/** The world-space axis normal to the viewport under `turn` — the ONE axis
+ *  every drag rotates about: the view rotation's pullback of ẑ. For the
+ *  classic yaw it is (-sin yaw, 0, cos yaw) — e1 × e2 of the projected
+ *  screen basis — so a positive rotation about it moves a projected point
+ *  counter-clockwise in view coordinates, the same convention atan2
+ *  reads; a general in-plane turn axis tilts it identically. */
+export function viewAxis(turn: TurnLike): [number, number, number] {
+  return quatRotate(quatInv(turnQuat(turn)), 0, 0, 1);
 }
 
 // ── Drag resolution ─────────────────────────────────────────────────
@@ -112,13 +113,14 @@ const MIN_APPARENT_RADIUS = 0.75;
 
 /**
  * Re-pose so the dragged joint tracks the finger. `viewX/viewY` are the
- * pointer in VIEW coordinates — the yawed orthographic frame the figure is
- * seen in (rig units, y up, pivoted on the root; exactly what projectYaw
- * emits) — because the whole interaction is defined in that plane:
+ * pointer in VIEW coordinates — the turned orthographic frame the figure
+ * is seen in (rig units, y up, pivoted on the root; exactly what
+ * projectTurn emits) — because the whole interaction is defined in that
+ * plane:
  *
- *  - translate (root): the root IS the yaw pivot, so its projection is its
- *    rig position — the figure follows the finger exactly at any yaw,
- *    clamped to ROOT_RANGE.
+ *  - translate (root): the root IS the turn pivot, so its projection is
+ *    its rig position — the figure follows the finger exactly under any
+ *    turn, clamped to ROOT_RANGE.
  *  - fk: the bone ending at the joint rotates about the VIEW AXIS so the
  *    joint's projection matches the finger's angle around its parent; its
  *    apparent radius is preserved (the orbit is a circle in the view
@@ -142,7 +144,7 @@ export function resolveDrag(
   target: DragTarget,
   viewX: number,
   viewY: number,
-  yaw = 0,
+  turn: TurnLike = 0,
   ik = true,
 ): FiggiePose {
   if (target.kind === 'translate') {
@@ -156,9 +158,11 @@ export function resolveDrag(
   }
 
   const world = solveWorld(pose);
+  const q = turnQuat(turn);
   const pivotX = world.root.x;
-  const [nx, ny, nz] = viewAxis(yaw);
-  const proj = (j: WorldJoint) => projectYaw(j.x, j.y, j.z, yaw, pivotX);
+  const pivotY = world.root.y;
+  const [nx, ny, nz] = quatRotate(quatInv(q), 0, 0, 1);
+  const proj = (j: WorldJoint) => projectTurn(j.x, j.y, j.z, q, pivotX, pivotY);
 
   // With IK off, a chain end (wrist / ankle) IS an FK joint: the bone
   // ending at it rotates about its parent (the elbow / knee, which does
@@ -227,8 +231,8 @@ export function resolveDrag(
   const midLocal = rotatedLocal(world, midId, alphaMid, nx, ny, nz);
   const mid = { ...pose, angles: { ...pose.angles, [midId]: midLocal } };
   const worldMid = solveWorld(mid);
-  const mp2 = projectYaw(worldMid[midId].x, worldMid[midId].y, worldMid[midId].z, yaw, pivotX);
-  const ep2 = projectYaw(worldMid[endId].x, worldMid[endId].y, worldMid[endId].z, yaw, pivotX);
+  const mp2 = proj(worldMid[midId]);
+  const ep2 = proj(worldMid[endId]);
   const alphaEnd = Math.atan2(ty - mp2.py, tx - mp2.px)
     - Math.atan2(ep2.py - mp2.py, ep2.px - mp2.px);
   return {
