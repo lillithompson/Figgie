@@ -5,16 +5,34 @@
  */
 
 import {
-  FiggiePose, ROOT_RANGE, defaultPose, normalizeAngle, poseEquals, resolveDrag,
+  FiggiePose, defaultPose, normalizeAngle, poseEquals, poseReach, resolveDrag, rootLimit,
   sanitizePose, solveWorld,
 } from '../pose';
-import { Turn, projectTurn, projectYaw, turnQuat } from '../view';
+import { STAGE, Turn, projectTurn, projectYaw, turnQuat } from '../view';
 import {
-  BODY_BLOBS, BODY_CAPSULES, DRAG_TARGETS, HAND_SPAN, JOINT_IDS, RIG_HEIGHT,
-  SKELETON, dragTargetFor, restJoint,
+  BODY_BLOBS, BODY_CAPSULES, DRAG_TARGETS, HAND_SPAN, JOINT_IDS, MAX_REACH, RIG_HEIGHT,
+  SKELETON, dragTargetFor, jointBound, restJoint,
 } from '../skeleton';
 
 const target = (joint: string) => dragTargetFor(joint as never)!;
+
+/** Everything the figure draws sits inside the stage, under every turn —
+ *  the promise the viewport rests on: a rig is never drawn clipped. */
+function expectInsideStage(pose: FiggiePose): void {
+  for (const turn of [0, 0.8, 1.9, -2.6, Math.PI]) {
+    const world = solveWorld(pose);
+    const q = turnQuat(turn);
+    for (const id of JOINT_IDS) {
+      const j = world[id];
+      const p = projectTurn(j.x, j.y, j.z, q, world.root.x, world.root.y);
+      const b = jointBound(id);
+      expect(p.px - b).toBeGreaterThanOrEqual(STAGE.minX - 1e-9);
+      expect(p.px + b).toBeLessThanOrEqual(STAGE.maxX + 1e-9);
+      expect(p.py - b).toBeGreaterThanOrEqual(STAGE.minY - 1e-9);
+      expect(p.py + b).toBeLessThanOrEqual(STAGE.maxY + 1e-9);
+    }
+  }
+}
 
 describe('the rest skeleton', () => {
   it('stands exactly RIG_HEIGHT tall, feet on the floor', () => {
@@ -288,18 +306,31 @@ describe('FK drags (rotate the bone ending at the joint)', () => {
 describe('root drag (translate)', () => {
   it('carries the whole figure without re-posing it', () => {
     const bent = resolveDrag(defaultPose(), target('elbowL'), -20, 90);
-    const moved = resolveDrag(bent, target('root'), 12, 40);
+    const moved = resolveDrag(bent, target('root'), 8, 48);
     const w = solveWorld(moved);
-    expect(w.root.x).toBeCloseTo(12, 6);
-    expect(w.root.y).toBeCloseTo(40, 6);
+    expect(w.root.x).toBeCloseTo(8, 6);
+    expect(w.root.y).toBeCloseTo(48, 6);
     // The elbow pose survived the move verbatim.
     expect(moved.angles).toEqual(bent.angles);
   });
 
-  it('clamps to the stage so the figure cannot be lost off-canvas', () => {
+  it('stops at the stage edge — the figure can never be dragged out of view', () => {
     const p = resolveDrag(defaultPose(), target('root'), 10000, -10000);
-    expect(p.rootX).toBe(ROOT_RANGE.x);
-    expect(p.rootY).toBe(-ROOT_RANGE.yDown);
+    const limit = rootLimit(solveWorld(defaultPose()));
+    expect(limit).toBeGreaterThan(0);
+    expect(p.rootX).toBeCloseTo(limit, 9);
+    expect(p.rootY).toBeCloseTo(-limit, 9);
+    expectInsideStage(p);
+  });
+
+  it('gives a reaching pose less room to travel than a resting one', () => {
+    // The room IS the stage minus the pose's own reach: fling an arm
+    // straight up and the figure has correspondingly less room to walk.
+    const reaching = resolveDrag(defaultPose(), target('wristL'), 0, 10_000);
+    expect(poseReach(solveWorld(reaching)))
+      .toBeGreaterThan(poseReach(solveWorld(defaultPose())));
+    expect(rootLimit(solveWorld(reaching)))
+      .toBeLessThan(rootLimit(solveWorld(defaultPose())));
   });
 });
 
@@ -563,10 +594,12 @@ describe('view-normal drags (yaw ≠ 0)', () => {
   });
 
   it('the root tracks the finger exactly at any yaw — it IS the pivot', () => {
-    const p = resolveDrag(defaultPose(), target('root'), 17, 40, 2.4);
+    // Inside the room the pose leaves (rootLimit); past that it stops at
+    // the stage edge rather than carrying the figure out of view.
+    const p = resolveDrag(defaultPose(), target('root'), 9, 48, 2.4);
     const w = solveWorld(p);
-    expect(w.root.x).toBeCloseTo(17, 6);
-    expect(w.root.y).toBeCloseTo(40, 6);
+    expect(w.root.x).toBeCloseTo(9, 6);
+    expect(w.root.y).toBeCloseTo(48, 6);
   });
 
   it('an edge-on bone refuses the drag instead of spinning wildly', () => {
@@ -626,10 +659,10 @@ describe('drags under a general turn axis', () => {
   });
 
   it('the root still tracks the finger exactly — it IS the pivot', () => {
-    const p = resolveDrag(defaultPose(), target('root'), 17, 40, TURN);
+    const p = resolveDrag(defaultPose(), target('root'), 9, 48, TURN);
     const w = solveWorld(p);
-    expect(w.root.x).toBeCloseTo(17, 6);
-    expect(w.root.y).toBeCloseTo(40, 6);
+    expect(w.root.x).toBeCloseTo(9, 6);
+    expect(w.root.y).toBeCloseTo(48, 6);
   });
 });
 
@@ -655,5 +688,48 @@ describe('drag-target coverage', () => {
       if (t.kind !== 'ik2') continue;
       for (const j of t.chain!) expect(restJoint(j).posable).toBe(true);
     }
+  });
+});
+
+describe('the figure never leaves its viewport', () => {
+  it('holds for the extreme poses a finger can reach', () => {
+    // Arms straight up, arms straight down, legs kicked out, everything
+    // dragged as far as the pointer can ask — the stage holds it all,
+    // because the stage IS the reach.
+    const far = 10_000;
+    let pose = defaultPose();
+    for (const [joint, x, y] of [
+      ['wristL', -far, far], ['wristR', far, far],
+      ['ankleL', -far, far], ['ankleR', far, -far],
+      ['elbowL', -far, -far], ['head', far, far],
+    ] as const) {
+      pose = resolveDrag(pose, target(joint), x, y);
+      expectInsideStage(pose);
+    }
+    // …and then dragged bodily as far as the finger goes.
+    expectInsideStage(resolveDrag(pose, target('root'), far, far));
+    expectInsideStage(resolveDrag(pose, target('root'), -far, -far));
+  });
+
+  it('sizes the stage by the longest chain plus the flesh on its end', () => {
+    // A fingertip on a fully extended arm is the farthest anything gets
+    // from the root; the stage is exactly that, squared about the root.
+    expect(STAGE.maxX - STAGE.minX).toBeCloseTo(2 * MAX_REACH, 9);
+    expect(STAGE.maxY - STAGE.minY).toBeCloseTo(2 * MAX_REACH, 9);
+    expect(poseReach(solveWorld(defaultPose()))).toBeLessThan(MAX_REACH);
+    // The T-pose leaves real room to move — a stage this size is not the
+    // figure's own bbox with the travel squeezed out of it.
+    expect(rootLimit(solveWorld(defaultPose()))).toBeGreaterThan(10);
+  });
+
+  it('leaves a stored pose from a smaller stage where it was', () => {
+    // Sanitizing clamps only at the stage's own half-width, so reopening a
+    // page never nudges a figure someone posed under an older, tighter
+    // rule; the next drag reels it in.
+    const legacy = sanitizePose({ v: 2, rootX: 55, rootY: -50, angles: {} });
+    expect(legacy.rootX).toBe(55);
+    expect(legacy.rootY).toBe(-50);
+    expect(sanitizePose({ v: 2, rootX: 9e9, rootY: -9e9, angles: {} }).rootX)
+      .toBe(MAX_REACH);
   });
 });

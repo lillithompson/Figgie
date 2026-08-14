@@ -19,7 +19,8 @@
 // about z) load losslessly: a number is the same rotation written smaller.
 
 import {
-  DragTarget, JointId, SKELETON, RIG_HEIGHT, dragTargetFor, restJoint,
+  DragTarget, JOINT_IDS, JointId, MAX_REACH, SKELETON, RIG_HEIGHT, dragTargetFor, jointBound,
+  restJoint,
 } from './skeleton';
 import {
   Quat, QUAT_IDENTITY, quatEquals, quatFromAxisAngle, quatInv, quatIsIdentity,
@@ -45,9 +46,41 @@ export function defaultPose(): FiggiePose {
   return { v: 2, rootX: 0, rootY: 0, angles: {} };
 }
 
-/** How far the root may wander from rest — generous, but the figure can
- *  never be dragged fully off a stage the size of itself. */
-export const ROOT_RANGE = { x: 55, yDown: 50, yUp: 42 };
+/**
+ * How far THIS pose's drawing reaches from its root, rig units — the
+ * radius of a ball about the root that holds every drawn point (3D, so it
+ * holds under every turn as well).
+ */
+export function poseReach(world: WorldJoints): number {
+  const r = world.root;
+  let max = 0;
+  for (const id of JOINT_IDS) {
+    const j = world[id];
+    max = Math.max(max, Math.hypot(j.x - r.x, j.y - r.y, j.z - r.z) + jointBound(id));
+  }
+  return max;
+}
+
+/**
+ * How far the root may wander from rest, rig units: whatever the stage
+ * has left over once this pose's own reach is taken out.
+ *
+ * So the figure is never draggable partway out of its viewport, and a
+ * pose that spreads wide (arms out) simply has less room to travel than a
+ * compact one — the same rule the stage is sized by, read the other way
+ * round. Symmetric in x and y because the stage is a square centred on
+ * the rest root, and turn-independent because the reach is 3D.
+ */
+export function rootLimit(world: WorldJoints): number {
+  return Math.max(0, MAX_REACH - poseReach(world));
+}
+
+/** A hard ceiling on a PARSED root offset (sanitizePose): the stage's own
+ *  half-width, so no stored number can seat a figure a whole stage away.
+ *  Deliberately looser than {@link rootLimit} — clamping a saved pose
+ *  tight would move figures posed under an older, smaller stage; the next
+ *  drag reels them in instead. */
+const ROOT_PARSE_LIMIT = MAX_REACH;
 
 const TAU = Math.PI * 2;
 
@@ -120,7 +153,7 @@ const MIN_APPARENT_RADIUS = 0.75;
  *
  *  - translate (root): the root IS the turn pivot, so its projection is
  *    its rig position — the figure follows the finger exactly under any
- *    turn, clamped to ROOT_RANGE.
+ *    turn, clamped so the figure stays inside the stage (rootLimit).
  *  - fk: the bone ending at the joint rotates about the VIEW AXIS so the
  *    joint's projection matches the finger's angle around its parent; its
  *    apparent radius is preserved (the orbit is a circle in the view
@@ -149,10 +182,14 @@ export function resolveDrag(
 ): FiggiePose {
   if (target.kind === 'translate') {
     const rest = restJoint('root');
+    // The figure travels as one rigid thing, so the room it has is the
+    // stage minus its own reach — it slides along the boundary rather
+    // than walking off it.
+    const limit = rootLimit(solveWorld(pose));
     return {
       ...pose,
-      rootX: clamp(viewX - rest.dx, -ROOT_RANGE.x, ROOT_RANGE.x),
-      rootY: clamp(viewY - rest.dy, -ROOT_RANGE.yDown, ROOT_RANGE.yUp),
+      rootX: clamp(viewX - rest.dx, -limit, limit),
+      rootY: clamp(viewY - rest.dy, -limit, limit),
       angles: { ...pose.angles },
     };
   }
@@ -291,10 +328,10 @@ export function sanitizePose(raw: unknown): FiggiePose {
   if (typeof raw !== 'object' || raw === null) return pose;
   const r = raw as Record<string, unknown>;
   if (typeof r.rootX === 'number' && Number.isFinite(r.rootX)) {
-    pose.rootX = clamp(r.rootX, -ROOT_RANGE.x, ROOT_RANGE.x);
+    pose.rootX = clamp(r.rootX, -ROOT_PARSE_LIMIT, ROOT_PARSE_LIMIT);
   }
   if (typeof r.rootY === 'number' && Number.isFinite(r.rootY)) {
-    pose.rootY = clamp(r.rootY, -ROOT_RANGE.yDown, ROOT_RANGE.yUp);
+    pose.rootY = clamp(r.rootY, -ROOT_PARSE_LIMIT, ROOT_PARSE_LIMIT);
   }
   if (typeof r.angles === 'object' && r.angles !== null) {
     for (const [key, value] of Object.entries(r.angles as Record<string, unknown>)) {

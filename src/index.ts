@@ -13,8 +13,8 @@
 export { createFiggie } from './figgie';
 export type { FiggieHandle, FiggieOptions } from './figgie';
 export {
-  defaultPose, normalizeAngle, poseEquals, resolveDrag, sanitizePose, solveWorld,
-  viewAxis,
+  defaultPose, normalizeAngle, poseEquals, poseReach, resolveDrag, rootLimit, sanitizePose,
+  solveWorld, viewAxis,
 } from './pose';
 export type { FiggiePose, WorldJoints } from './pose';
 export {
@@ -22,8 +22,8 @@ export {
 } from './quat';
 export type { Quat } from './quat';
 export {
-  BODY_BLOBS, BODY_CAPSULES, DRAG_TARGETS, HAND_SPAN, JOINT_IDS, RIG_HEIGHT, SKELETON,
-  dragTargetFor, knobRadius,
+  BODY_BLOBS, BODY_CAPSULES, DRAG_TARGETS, HAND_SPAN, JOINT_IDS, MAX_REACH, RIG_HEIGHT,
+  ROOT_REST_Y, SKELETON, dragTargetFor, jointBound, knobRadius,
 } from './skeleton';
 export type { DragTarget, JointId } from './skeleton';
 export { posePrimitives, projectSilhouette } from './primitives';

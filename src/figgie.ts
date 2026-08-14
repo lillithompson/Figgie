@@ -64,6 +64,11 @@ export interface FiggieHandle {
   destroy(): void;
 }
 
+/** Ceiling on the drawing buffer's long edge, device pixels — see
+ *  `resize`. Generous enough that an ordinary rig still draws at full
+ *  device resolution on a phone. */
+const MAX_BACKING_PX = 2048;
+
 export function createFiggie(canvas: HTMLCanvasElement, opts: FiggieOptions = {}): FiggieHandle {
   const gl = canvas.getContext('webgl', {
     alpha: true,
@@ -117,8 +122,17 @@ export function createFiggie(canvas: HTMLCanvasElement, opts: FiggieOptions = {}
     const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
     cssWidth = canvas.clientWidth || canvas.width;
     cssHeight = canvas.clientHeight || canvas.height;
-    const w = Math.max(1, Math.round(cssWidth * dpr));
-    const h = Math.max(1, Math.round(cssHeight * dpr));
+    // The backing store is the memory a rig costs, and it grows as the
+    // square of its size: a rig scaled large on a host's page asks for a
+    // canvas thousands of pixels across — its STAGE is wider than the
+    // figure, so no pose is ever clipped — which at device resolution is
+    // tens of megabytes for one mannequin. Past the cap it draws at a
+    // lower device resolution instead: the projection is computed in CSS
+    // units and the viewport reads the buffer, so nothing moves; flat ink
+    // and untextured shading just lose a hair of edge crispness.
+    const scale = Math.min(dpr, MAX_BACKING_PX / Math.max(cssWidth, cssHeight, 1));
+    const w = Math.max(1, Math.round(cssWidth * scale));
+    const h = Math.max(1, Math.round(cssHeight * scale));
     if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w;
       canvas.height = h;

@@ -14,7 +14,7 @@
 // spins the figure about the axis the viewer sees as vertical.
 
 import { Quat, quatFromAxisAngle, quatRotate } from './quat';
-import { RIG_HEIGHT } from './skeleton';
+import { MAX_REACH, ROOT_REST_Y } from './skeleton';
 
 /** A turn of `yaw` radians about the rig-plane axis (upX, upY, 0). The
  *  axis need not be unit length (it is normalized); a degenerate axis
@@ -44,9 +44,22 @@ export function turnQuat(turn: TurnLike): Quat {
   return quatFromAxisAngle(ux, uy, 0, yaw);
 }
 
-/** The rig-space rect the camera frames: the T-pose plus breathing room
- *  (arms span ±41, feet reach z≈10 which yaw can swing into x). */
-export const STAGE = { minX: -56, maxX: 56, minY: -6, maxY: RIG_HEIGHT + 6 };
+/** The rig-space rect the camera frames: everything the figure can ever
+ *  reach, as a square about the rest root ({@link MAX_REACH}). Sized this
+ *  way rather than snug around the T-pose because the stage is also the
+ *  VIEWPORT the host gives the rig — a figure that reaches past it is a
+ *  figure drawn clipped, and an arm raised straight up reaches well past
+ *  a snug one. No pose can leave this box (bones only rotate about their
+ *  parents) and no turn can either (the reach is measured in 3D, and
+ *  rotating then projecting can only shorten a distance) — so long as the
+ *  root stays inside what the pose's own reach leaves over, which is what
+ *  `rootLimit` enforces on the one drag that moves it. */
+export const STAGE = {
+  minX: -MAX_REACH,
+  maxX: MAX_REACH,
+  minY: ROOT_REST_Y - MAX_REACH,
+  maxY: ROOT_REST_Y + MAX_REACH,
+};
 
 /**
  * Rotate a rig-space point by the view quat `q` (see {@link turnQuat})

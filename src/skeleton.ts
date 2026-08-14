@@ -367,3 +367,59 @@ export function knobRadius(joint: JointId): number {
     default: return 2.6;
   }
 }
+
+// ── Reach ───────────────────────────────────────────────────────────
+//
+// How far the DRAWING can get from the root — the number the stage is
+// sized by, so that no pose and no turn can ever push the figure past the
+// viewport that frames it. Bones only rotate about their parents, so a
+// joint can never be farther from the root than its chain is long; add
+// the flesh hung on it and the bound holds for every pose. Distances are
+// 3D, which is what makes it hold for every TURN too: a rotation about
+// any axis preserves distance, and projection only shortens it.
+
+/** What the ink shader draws past the flesh — pen half-widths, joint
+ *  rings, the chest and pelvis volumes standing a little proud of their
+ *  blobs. One generous constant: the stage costs nothing for being a
+ *  whisker too big, and clips the figure if it is a whisker too small. */
+const INK_ALLOWANCE = 2;
+
+/** Flesh radius per joint: the widest capsule meeting it, any blob riding
+ *  it (offset included), and its own grab knob. */
+const JOINT_BOUND: ReadonlyMap<JointId, number> = (() => {
+  const m = new Map<JointId, number>();
+  const bump = (id: JointId, r: number) => m.set(id, Math.max(m.get(id) ?? 0, r));
+  for (const c of BODY_CAPSULES) {
+    bump(c.a, c.radius);
+    bump(c.b, c.radius);
+  }
+  for (const b of BODY_BLOBS) {
+    bump(b.joint, Math.hypot(b.ox, b.oy, b.oz) + Math.max(b.rx, b.ry, b.rz));
+  }
+  for (const j of SKELETON) bump(j.id, knobRadius(j.id));
+  return m;
+})();
+
+/** How far the drawn figure reaches past joint `id`, rig units. */
+export function jointBound(id: JointId): number {
+  return (JOINT_BOUND.get(id) ?? 0) + INK_ALLOWANCE;
+}
+
+/** The rest root's height — the figure hangs off it, and the stage is
+ *  centred on it. */
+export const ROOT_REST_Y = SKELETON[0].dy;
+
+/** The farthest any drawn point can EVER be from the root: the longest
+ *  bone chain plus the flesh at its end. No pose can beat it. */
+export const MAX_REACH = (() => {
+  const chain = new Map<JointId, number>();
+  let max = 0;
+  for (const j of SKELETON) {
+    const d = j.parent
+      ? (chain.get(j.parent) ?? 0) + Math.hypot(j.dx, j.dy, j.dz)
+      : 0;
+    chain.set(j.id, d);
+    max = Math.max(max, d + jointBound(j.id));
+  }
+  return max;
+})();
