@@ -13,10 +13,11 @@
 // no loop to fall behind.
 
 import { FiggiePose, defaultPose, poseEquals, resolveDrag, sanitizePose, solveWorld } from './pose';
-import { JointId } from './skeleton';
+import { HAND_SPAN, JointId } from './skeleton';
 import { Hit, hitTest } from './hit';
+import { buildInkDraw } from './ink';
 import { posePrimitives } from './primitives';
-import { DEFAULT_COLORS, RigColors, Renderer, createRenderer } from './render';
+import { DEFAULT_COLORS, RigColors, RigShader, Renderer, createRenderer } from './render';
 import { Fit, TurnLike, fitStage, turnQuat } from './view';
 
 export interface FiggieOptions {
@@ -29,6 +30,11 @@ export interface FiggieOptions {
    *  once more with `live: false` when the finger lifts (the commit). */
   onPoseChange?(pose: FiggiePose, meta: { live: boolean }): void;
   colors?: Partial<RigColors>;
+  /** How the figure is drawn: 'classic' (the lambert-lit mannequin,
+   *  default) or 'npr' (a flat-ink hand-drawn stick figure). Purely a
+   *  render choice — posing, hit-testing and the pose itself are
+   *  identical either way. */
+  shader?: RigShader;
   /** false = the component is a pure RENDERER: it attaches no pointer
    *  listeners and never re-poses itself. For hosts that embed the rig in
    *  their own scene and arbitrate gestures themselves — they drive it
@@ -43,6 +49,8 @@ export interface FiggieHandle {
   setPose(pose: unknown): void;
   getYaw(): TurnLike;
   setYaw(yaw: TurnLike): void;
+  getShader(): RigShader;
+  setShader(shader: RigShader): void;
   /** Back to the T-pose (turn untouched — the slider owns it). */
   reset(): void;
   /** Light one joint's knob in the accent colour (a host-driven grab);
@@ -71,6 +79,7 @@ export function createFiggie(canvas: HTMLCanvasElement, opts: FiggieOptions = {}
 
   let pose = sanitizePose(opts.initialPose ?? defaultPose());
   let turn: TurnLike = opts.initialYaw ?? 0;
+  let shader: RigShader = opts.shader === 'npr' ? 'npr' : 'classic';
   let fit: Fit = fitStage(1, 1);
   let cssWidth = 1;
   let cssHeight = 1;
@@ -86,8 +95,12 @@ export function createFiggie(canvas: HTMLCanvasElement, opts: FiggieOptions = {}
       framePending = false;
       if (destroyed) return;
       const root = solveWorld(pose).root;
+      const npr = shader === 'npr';
       renderer.draw({
-        primitives: posePrimitives(pose),
+        primitives: npr ? [] : posePrimitives(pose),
+        // The ink sketch carries its own grab feedback (the accent ring),
+        // so the active joint rides in with the geometry.
+        ink: npr ? buildInkDraw(pose, turn, grab?.target.joint ?? hostActive) : null,
         turn: turnQuat(turn),
         pivotX: root.x,
         pivotY: root.y,
@@ -129,7 +142,10 @@ export function createFiggie(canvas: HTMLCanvasElement, opts: FiggieOptions = {}
   const onPointerDown = (e: PointerEvent) => {
     if (!e.isPrimary) return;
     const rect = canvas.getBoundingClientRect();
-    const hit = hitTest(pose, turn, fit, e.clientX - rect.left, e.clientY - rect.top);
+    // Fingertips only when the hand reads: its span over a quarter of the
+    // canvas's short side.
+    const fine = HAND_SPAN * fit.scale > 0.25 * Math.min(cssWidth, cssHeight);
+    const hit = hitTest(pose, turn, fit, e.clientX - rect.left, e.clientY - rect.top, fine);
     if (!hit) return;
     grab = hit;
     canvas.setPointerCapture?.(e.pointerId);
@@ -182,6 +198,11 @@ export function createFiggie(canvas: HTMLCanvasElement, opts: FiggieOptions = {}
     setYaw(next: TurnLike) {
       // Kept as given; turnQuat sanitizes non-finite parts at every use.
       turn = typeof next === 'number' && !Number.isFinite(next) ? 0 : next;
+      requestRender();
+    },
+    getShader: () => shader,
+    setShader(next: RigShader) {
+      shader = next === 'npr' ? 'npr' : 'classic';
       requestRender();
     },
     reset() {

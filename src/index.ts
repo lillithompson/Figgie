@@ -22,14 +22,16 @@ export {
 } from './quat';
 export type { Quat } from './quat';
 export {
-  BODY_BLOBS, BODY_CAPSULES, DRAG_TARGETS, JOINT_IDS, RIG_HEIGHT, SKELETON,
+  BODY_BLOBS, BODY_CAPSULES, DRAG_TARGETS, HAND_SPAN, JOINT_IDS, RIG_HEIGHT, SKELETON,
   dragTargetFor, knobRadius,
 } from './skeleton';
 export type { DragTarget, JointId } from './skeleton';
 export { posePrimitives, projectSilhouette } from './primitives';
-export type { FlatCapsule, FlatEllipse, FlatPrimitive } from './primitives';
+export type { FlatCapsule, FlatEllipse, FlatPrimitive, WorldPrimitive } from './primitives';
+export { buildInkDraw, fillBatch, inkBatch, sketchFills, sketchInk } from './ink';
+export type { InkBatch, InkDraw, InkFill, InkPoint, InkStroke } from './ink';
 export { fitStage, projectTurn, projectYaw, STAGE, turnQuat } from './view';
 export type { Fit, Turn, TurnLike } from './view';
 export { hitTest, HIT_RADIUS_PX } from './hit';
 export { DEFAULT_COLORS } from './render';
-export type { RigColors } from './render';
+export type { RigColors, RigShader } from './render';

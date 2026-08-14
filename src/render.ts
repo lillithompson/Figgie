@@ -1,36 +1,53 @@
-// Figgie's WebGL1 renderer. Deliberately small: two static meshes (sphere,
-// cylinder), one lambert program, and one draw call per primitive — the
-// whole figure is ~40 draws of tiny geometry, far inside a mobile WebView's
-// 90 fps budget, and it only draws when something changed (the component
-// schedules frames on demand; there is no free-running loop).
+// Figgie's WebGL1 renderer, with two looks:
 //
-// Every model transform on the figure is T · R · S with an arbitrary 3×3
-// rotation — bones and blobs orient freely in 3D now that poses rotate
-// about the view axis — composed straight into scratch matrices by one
-// builder.
+//   'classic'  the lambert-lit wooden mannequin: two static meshes
+//              (sphere, cylinder), one lit program, one draw call per
+//              primitive — ~40 draws of tiny geometry.
+//   'npr'      the ink sketch: the whole hand-drawn figure arrives as ONE
+//              pre-triangulated 2D ribbon batch (ink.ts builds it in view
+//              space, taper and wobble included) and draws flat-colored in
+//              a single call through a tiny 2D program — a line drawing,
+//              not a 3D shape, so no lighting and no depth.
+//
+// Either way frames are drawn on demand only (the component schedules
+// them; there is no free-running loop). Classic model transforms are
+// T · R · S with an arbitrary 3×3 rotation, composed straight into
+// scratch matrices by one builder.
 
+import { InkBatch, InkDraw } from './ink';
 import { Mesh, unitCylinder, unitSphere } from './mesh';
 import { WorldPrimitive } from './primitives';
 import { Quat, quatFromAxisAngle, quatToMat3 } from './quat';
 import { Fit } from './view';
+
+/** How the figure is drawn: the lit mannequin, or the ink sketch. */
+export type RigShader = 'classic' | 'npr';
 
 export interface RigColors {
   body: [number, number, number];
   knob: [number, number, number];
   knobActive: [number, number, number];
   eye: [number, number, number];
+  /** The ink sketch's line colour. */
+  ink: [number, number, number];
 }
 
-/** Stewie's warm wood tan, darker joint bands, near-black eye dots. */
+/** Stewie's warm wood tan, darker joint bands, near-black eye dots, and a
+ *  soft charcoal for the sketch's ink. */
 export const DEFAULT_COLORS: RigColors = {
   body: [0.87, 0.7, 0.48],
   knob: [0.58, 0.43, 0.27],
   knobActive: [0.22, 0.74, 0.97],
   eye: [0.14, 0.11, 0.09],
+  ink: [0.16, 0.15, 0.14],
 };
 
 export interface DrawInput {
+  /** The classic figure; ignored (pass []) when `ink` is present. */
   primitives: readonly WorldPrimitive[];
+  /** The ink sketch for this frame (ink.buildInkDraw) — when present, it
+   *  IS the frame: the classic path is skipped entirely. */
+  ink?: InkDraw | null;
   /** The view rotation (turnQuat of the host's turn). */
   turn: Quat;
   /** The point the turn pivots about (the figure's root). */
@@ -65,6 +82,24 @@ void main() {
   gl_FragColor = vec4(uColor * l, 1.0);
 }`;
 
+// The ink program: view-space positions through the fit's ortho, one flat
+// colour. The ribbons carry all their shape (taper, wobble) in the
+// geometry; z rides along so strokes depth-test against the solid body
+// masses (same -z/150 depth the classic program uses).
+const VS_INK = `
+attribute vec3 aPos;
+uniform vec4 uView; // kx, ky, centerX, centerY (view units -> NDC)
+void main() {
+  gl_Position = vec4((aPos.x - uView.z) * uView.x, (aPos.y - uView.w) * uView.y, -aPos.z / 150.0, 1.0);
+}`;
+
+const FS_INK = `
+precision mediump float;
+uniform vec3 uInk;
+void main() {
+  gl_FragColor = vec4(uInk, 1.0);
+}`;
+
 interface GlMesh {
   vbo: WebGLBuffer;
   ibo: WebGLBuffer;
@@ -77,12 +112,21 @@ export interface Renderer {
 }
 
 export function createRenderer(gl: WebGLRenderingContext): Renderer {
-  const program = buildProgram(gl);
+  const program = buildProgram(gl, VS, FS);
   const aPos = gl.getAttribLocation(program, 'aPos');
   const aNormal = gl.getAttribLocation(program, 'aNormal');
   const uMVP = gl.getUniformLocation(program, 'uMVP');
   const uNormal = gl.getUniformLocation(program, 'uNormal');
   const uColor = gl.getUniformLocation(program, 'uColor');
+
+  const inkProgram = buildProgram(gl, VS_INK, FS_INK);
+  const aInkPos = gl.getAttribLocation(inkProgram, 'aPos');
+  const uInkView = gl.getUniformLocation(inkProgram, 'uView');
+  const uInkColor = gl.getUniformLocation(inkProgram, 'uInk');
+  // One dynamic buffer pair, re-filled per ink frame (a whole figure is
+  // ~2 KB of ribbon — nothing worth caching between poses).
+  const inkVbo = gl.createBuffer()!;
+  const inkIbo = gl.createBuffer()!;
 
   const sphere = upload(gl, unitSphere());
   const cylinder = upload(gl, unitCylinder());
@@ -184,10 +228,51 @@ export function createRenderer(gl: WebGLRenderingContext): Renderer {
       view = quatToMat3(input.turn);
       gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      bound = null;
+
+      if (input.ink) {
+        // The ink sketch: flat ribbons over depth-only body masses. The
+        // masses land in the DEPTH buffer alone — the page still shows
+        // through the figure — so strokes passing genuinely behind the
+        // chest, pelvis or head fail the test and vanish, while lines
+        // merely CROSSING (same depth) draw freely, construction-style.
+        const { fit, cssWidth, cssHeight } = input;
+        gl.useProgram(inkProgram);
+        gl.disableVertexAttribArray(aNormal);
+        gl.enableVertexAttribArray(aInkPos);
+        gl.uniform4f(
+          uInkView,
+          (2 * fit.scale) / cssWidth,
+          (2 * fit.scale) / cssHeight,
+          fit.toViewX(cssWidth / 2),
+          fit.toViewY(cssHeight / 2),
+        );
+        const drawBatch = (batch: InkBatch, color: [number, number, number]) => {
+          if (batch.indices.length === 0) return;
+          gl.bindBuffer(gl.ARRAY_BUFFER, inkVbo);
+          gl.bufferData(gl.ARRAY_BUFFER, batch.positions, gl.DYNAMIC_DRAW);
+          gl.vertexAttribPointer(aInkPos, 3, gl.FLOAT, false, 12, 0);
+          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, inkIbo);
+          gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, batch.indices, gl.DYNAMIC_DRAW);
+          gl.uniform3fv(uInkColor, color);
+          gl.drawElements(gl.TRIANGLES, batch.indices.length, gl.UNSIGNED_SHORT, 0);
+        };
+        gl.colorMask(false, false, false, false);
+        drawBatch(input.ink.fills, colors.ink);
+        gl.colorMask(true, true, true, true);
+        drawBatch(input.ink.main, colors.ink);
+        if (input.ink.accent) {
+          // The grab marker always shows — feedback beats occlusion.
+          gl.disable(gl.DEPTH_TEST);
+          drawBatch(input.ink.accent, colors.knobActive);
+          gl.enable(gl.DEPTH_TEST);
+        }
+        return;
+      }
+
       gl.useProgram(program);
       gl.enableVertexAttribArray(aPos);
       gl.enableVertexAttribArray(aNormal);
-      bound = null;
 
       for (const p of input.primitives) {
         if (p.kind === 'capsule') {
@@ -224,7 +309,10 @@ export function createRenderer(gl: WebGLRenderingContext): Renderer {
       gl.deleteBuffer(sphere.ibo);
       gl.deleteBuffer(cylinder.vbo);
       gl.deleteBuffer(cylinder.ibo);
+      gl.deleteBuffer(inkVbo);
+      gl.deleteBuffer(inkIbo);
       gl.deleteProgram(program);
+      gl.deleteProgram(inkProgram);
     },
   };
 }
@@ -239,7 +327,7 @@ function upload(gl: WebGLRenderingContext, mesh: Mesh): GlMesh {
   return { vbo, ibo, count: mesh.indices.length };
 }
 
-function buildProgram(gl: WebGLRenderingContext): WebGLProgram {
+function buildProgram(gl: WebGLRenderingContext, vs: string, fs: string): WebGLProgram {
   const compile = (type: number, src: string) => {
     const sh = gl.createShader(type)!;
     gl.shaderSource(sh, src);
@@ -250,8 +338,8 @@ function buildProgram(gl: WebGLRenderingContext): WebGLProgram {
     return sh;
   };
   const program = gl.createProgram()!;
-  gl.attachShader(program, compile(gl.VERTEX_SHADER, VS));
-  gl.attachShader(program, compile(gl.FRAGMENT_SHADER, FS));
+  gl.attachShader(program, compile(gl.VERTEX_SHADER, vs));
+  gl.attachShader(program, compile(gl.FRAGMENT_SHADER, fs));
   gl.linkProgram(program);
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
     throw new Error(`figgie program: ${gl.getProgramInfoLog(program) ?? 'link failed'}`);

@@ -166,6 +166,22 @@ describe('hitTest', () => {
     expect(hit?.target.joint).toBe('wristR');
   });
 
+  it('offers hand joints only through the fine gate', () => {
+    // Without `fine`, a press on the hand can only ever mean the WRIST: a
+    // press on the knuckle line inside the wrist's capture grabs the
+    // wrist, and one out at the fingertip (past that capture) grabs
+    // nothing at all.
+    const base = screenOf('middleL0');
+    expect(hitTest(defaultPose(), 0, fit, base.x, base.y)?.target.joint).toBe('wristL');
+    const tip = screenOf('middleL3');
+    expect(hitTest(defaultPose(), 0, fit, tip.x, tip.y)).toBeNull();
+    // The gate opens the hand's own joints to the same presses — at the
+    // knuckle line that is the palm-bend effector, at the tip the finger.
+    expect(hitTest(defaultPose(), 0, fit, base.x, base.y, true)?.target.joint)
+      .toBe('knuckL');
+    expect(hitTest(defaultPose(), 0, fit, tip.x, tip.y, true)?.target.joint).toBe('middleL3');
+  });
+
   it('captures within a thumb radius and no further', () => {
     const s = screenOf('head');
     const near = hitTest(defaultPose(), 0, fit, s.x + HIT_RADIUS_PX - 2, s.y);
@@ -208,16 +224,15 @@ describe('projectSilhouette (the bake hosts draw from)', () => {
     }
   });
 
-  it('narrows the foot wedge as the figure turns edge-on to it', () => {
-    const foot = (yaw: number) => projectSilhouette(defaultPose(), yaw)
-      .filter((p): p is Extract<typeof p, { kind: 'ellipse' }> => p.kind === 'ellipse')
-      .filter((p) => !p.tint && p.cy < 10)
-      .map((p) => Math.max(p.rx, p.ry));
-    // Head-on, the foot shows its narrow front (long axis is depth);
-    // at 90° the full toe length swings into view.
-    const headOn = Math.max(...foot(0));
-    const side = Math.max(...foot(Math.PI / 2));
-    expect(side).toBeGreaterThan(headOn * 1.5);
+  it('foreshortens the foot bones as the figure turns', () => {
+    // The foot chain points mostly at the viewer (splayed a little), so
+    // head-on its capsules project short; at 90° their full length swings
+    // into view.
+    const footReach = (yaw: number) => Math.max(...projectSilhouette(defaultPose(), yaw)
+      .filter((p): p is Extract<typeof p, { kind: 'capsule' }> =>
+        p.kind === 'capsule' && Math.max(p.ay, p.by) < 8)
+      .map((p) => Math.hypot(p.bx - p.ax, p.by - p.ay)));
+    expect(footReach(Math.PI / 2)).toBeGreaterThan(footReach(0) * 1.4);
   });
 
   it('poses carry into the silhouette — a raised arm shows raised', () => {

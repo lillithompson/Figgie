@@ -22,6 +22,9 @@ export interface Hit {
 /**
  * Hit-test a canvas-space point (CSS px). Nearest target within
  * {@link HIT_RADIUS_PX}; null clears the way for the host's own gestures.
+ * FINE targets (fingertips) are offered only with `fine` — the caller's
+ * "the hand is big enough on screen" zoom gate — so at ordinary sizes a
+ * press near a hand still grabs the wrist.
  */
 export function hitTest(
   pose: FiggiePose,
@@ -29,6 +32,7 @@ export function hitTest(
   fit: Fit,
   screenX: number,
   screenY: number,
+  fine = false,
 ): Hit | null {
   const world = solveWorld(pose);
   const q = turnQuat(turn);
@@ -38,6 +42,7 @@ export function hitTest(
   const viewY = fit.toViewY(screenY);
   let best: Hit | null = null;
   for (const target of DRAG_TARGETS) {
+    if (target.fine && !fine) continue;
     const j = world[target.joint];
     const p = projectTurn(j.x, j.y, j.z, q, pivotX, pivotY);
     const dx = fit.toScreenX(p.px) - screenX;

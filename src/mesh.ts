@@ -1,7 +1,8 @@
-// The two meshes everything on the figure is drawn with: a unit sphere
-// (joints, head, ellipsoids via non-uniform scale) and a unit cylinder
-// (bone shafts). Generated once at startup; pure functions so the counts
-// and shapes are node-testable.
+// The two meshes the classic figure is drawn with: a unit sphere (joints,
+// head, ellipsoids via non-uniform scale) and a unit cylinder (bone
+// shafts). The ink (NPR) shader uses none of these — its geometry is 2D
+// ribbons built per frame (see ink.ts). Generated once at startup; pure
+// functions so the counts and shapes are node-testable.
 
 export interface Mesh {
   /** Interleaved x,y,z position + x,y,z normal per vertex. */
@@ -54,3 +55,4 @@ export function unitCylinder(slices = 14): Mesh {
   }
   return { data: new Float32Array(verts), indices: new Uint16Array(idx) };
 }
+

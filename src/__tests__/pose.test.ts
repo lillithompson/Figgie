@@ -10,8 +10,8 @@ import {
 } from '../pose';
 import { Turn, projectTurn, projectYaw, turnQuat } from '../view';
 import {
-  BODY_BLOBS, BODY_CAPSULES, DRAG_TARGETS, JOINT_IDS, RIG_HEIGHT, SKELETON,
-  dragTargetFor, restJoint,
+  BODY_BLOBS, BODY_CAPSULES, DRAG_TARGETS, HAND_SPAN, JOINT_IDS, RIG_HEIGHT,
+  SKELETON, dragTargetFor, restJoint,
 } from '../skeleton';
 
 const target = (joint: string) => dragTargetFor(joint as never)!;
@@ -40,10 +40,17 @@ describe('the rest skeleton', () => {
     }
   });
 
-  it('keeps every joint in the posing plane — depth belongs to flesh', () => {
-    // The drag unprojection assumes z = 0 for every joint; a joint with a
-    // rest z would be grabbed somewhere its knob doesn't render.
-    for (const j of SKELETON) expect(j.dz).toBe(0);
+  it('keeps every joint in the posing plane — except the feet', () => {
+    // Depth belongs to flesh — with ONE exception: the foot chain (ball,
+    // toe) points at the viewer, and its stance splay is what keeps it
+    // poseable face-on. Everything else stays in the rig plane.
+    for (const j of SKELETON) {
+      if (/^(ball|toe)[LR]$/.test(j.id)) {
+        expect(j.dz).toBeGreaterThan(0);
+      } else {
+        expect(j.dz).toBe(0);
+      }
+    }
   });
 });
 
@@ -77,31 +84,146 @@ describe('the flesh on the bones', () => {
     }
   });
 
-  it('has hands: a palm with a thumb standing proud of its front edge', () => {
+  it('has hands: a two-half palm and five three-segment fingers per wrist', () => {
     for (const side of ['wristL', 'wristR'] as const) {
-      const [palm, thumb] = on(side);
-      expect(thumb).toBeDefined();
-      // Flat: a paddle, not a ball.
-      expect(palm.ry).toBeLessThan(palm.rx / 2);
-      // The thumb pokes past the palm in +z (the way the hand faces)…
-      expect(thumb.oz + thumb.rz).toBeGreaterThan(palm.oz + palm.rz);
-      // …and sits inboard of the palm's centre, toward the wrist.
-      expect(Math.abs(thumb.ox)).toBeLessThan(Math.abs(palm.ox));
+      const s = side === 'wristL' ? 'L' : 'R';
+      // The palm's flesh hangs in two flat halves on its own chain, so
+      // the classic look bends with the palm effector too.
+      for (const half of [`palm${s}`, `knuck${s}`]) {
+        const blob = on(half)[0];
+        expect(blob).toBeDefined();
+        expect(blob.ry).toBeLessThan(blob.rx);
+      }
+      const reach = (name: string) => {
+        const tip = world[`${name}${s}3` as keyof typeof world];
+        const w = world[side];
+        return Math.hypot(tip.x - w.x, tip.y - w.y);
+      };
+      for (const name of ['thumb', 'index', 'middle', 'ring', 'pinky']) {
+        // Four joints per finger: a rigid base knuckle + three POSABLE
+        // segments, each a thin drawn shaft.
+        expect(restJoint(`${name}${s}0` as never).posable).toBe(false);
+        for (const seg of [1, 2, 3]) {
+          const j = restJoint(`${name}${s}${seg}` as never);
+          expect(j.posable).toBe(true);
+          expect(BODY_CAPSULES.find((c) => c.b === j.id)!.radius).toBeLessThan(1);
+        }
+      }
+      // The thumb reaches shortest, high and inboard; middle the longest,
+      // and exactly the span the fine-grab zoom gate measures.
+      expect(reach('thumb')).toBeLessThan(reach('pinky'));
+      for (const name of ['thumb', 'index', 'ring', 'pinky']) {
+        expect(reach('middle')).toBeGreaterThanOrEqual(reach(name));
+      }
+      expect(reach('middle')).toBeCloseTo(HAND_SPAN, 0);
+      // The MIDDLE FINGER is as long as the palm (wrist to knuckle line).
+      const mid = world[`middle${s}3` as keyof typeof world];
+      const base = world[`middle${s}0` as keyof typeof world];
+      const knuck = world[`knuck${s}` as keyof typeof world];
+      const fingerLen = Math.hypot(mid.x - base.x, mid.y - base.y);
+      const palmLen = Math.hypot(knuck.x - world[side].x, knuck.y - world[side].y) - 1.3;
+      expect(fingerLen).toBeCloseTo(palmLen, 0);
     }
   });
 
-  it('has feet: heel behind the ankle, toe in front, soles level', () => {
-    for (const side of ['ankleL', 'ankleR'] as const) {
-      const [heel, toe] = on(side);
-      expect(heel.oz).toBeLessThan(0); // behind
-      expect(toe.oz).toBeGreaterThan(0); // in front
-      expect(toe.rz).toBeGreaterThan(heel.rz); // the toe box is the long half
-      // One flat sole: both rest on the same line, and on the floor.
-      expect(heel.oy - heel.ry).toBeCloseTo(toe.oy - toe.ry, 6);
-      expect(world[side].y + heel.oy - heel.ry).toBeGreaterThan(0);
-      // The foot's LENGTH lies in depth — what the turn swings into view.
-      expect((toe.oz + toe.rz) - (heel.oz - heel.rz)).toBeGreaterThan(toe.rx * 3);
+  it('the collar tilts the SHOULDER LINE — neck and head ride along', () => {
+    // Drag the collar joint: the shoulders see-saw (one up, one down),
+    // the arms ride, and the whole girdle — neck and head included —
+    // leans with it. Only the chest below holds still.
+    const w0 = solveWorld(defaultPose());
+    const p = resolveDrag(
+      defaultPose(), target('collar'), w0.chest.x - 4, w0.chest.y + 3,
+    );
+    const w = solveWorld(p);
+    expect(Object.keys(p.angles)).toEqual(['collar']);
+    expect(w.shoulderL.y).toBeLessThan(w0.shoulderL.y - 3);
+    expect(w.shoulderR.y).toBeGreaterThan(w0.shoulderR.y + 3);
+    expect(w.wristL.y).toBeLessThan(w0.wristL.y - 3); // the arm rides
+    // The neck joint moves with the shoulders, carrying the head.
+    expect(w.neck.x).toBeLessThan(w0.neck.x - 3);
+    expect(w.head.x).toBeLessThan(w0.head.x - 8);
+    expect(w.chest.y).toBeCloseTo(w0.chest.y, 6);
+    // A see-saw, not a stretch: shoulder span and neck riser both keep
+    // their lengths.
+    expect(Math.hypot(w.shoulderR.x - w.shoulderL.x, w.shoulderR.y - w.shoulderL.y))
+      .toBeCloseTo(19, 6);
+    expect(Math.hypot(w.neck.x - w.collar.x, w.neck.y - w.collar.y)).toBeCloseTo(2, 6);
+  });
+
+  it('the palm bends in the middle: the knuckle effector hinges at the pin', () => {
+    // Drag the knuckle-line joint down: the outer palm and all four
+    // fingers swing about the MID-PALM pin; the pin, the wrist and the
+    // thumb (inner-palm rider) hold still.
+    const w0 = solveWorld(defaultPose());
+    const p = resolveDrag(
+      defaultPose(), target('knuckL'), w0.palmL.x - 1.2, w0.palmL.y - 2.2,
+    );
+    const w = solveWorld(p);
+    expect(Object.keys(p.angles)).toEqual(['knuckL']);
+    expect(w.knuckL.y).toBeLessThan(w0.knuckL.y - 1);
+    expect(w.middleL3.y).toBeLessThan(w0.middleL3.y - 2);
+    expect(w.palmL.x).toBeCloseTo(w0.palmL.x, 6);
+    expect(w.palmL.y).toBeCloseTo(w0.palmL.y, 6);
+    expect(w.wristL.y).toBeCloseTo(w0.wristL.y, 6);
+    expect(w.thumbL3.y).toBeCloseTo(w0.thumbL3.y, 6);
+    // The bend preserves the outer palm's length — a hinge, not a stretch.
+    const span = Math.hypot(w.knuckL.x - w.palmL.x, w.knuckL.y - w.palmL.y);
+    expect(span).toBeCloseTo(Math.hypot(
+      w0.knuckL.x - w0.palmL.x, w0.knuckL.y - w0.palmL.y,
+    ), 6);
+  });
+
+  it('finger segments are FINE drag targets — zoom-gated, knobless', () => {
+    const fine = DRAG_TARGETS.filter((t) => t.fine);
+    // 3 segments x 5 fingers x 2 hands, plus each hand's palm effector.
+    expect(fine).toHaveLength(32);
+    for (const t of fine) expect(t.kind).toBe('fk');
+    // A middle segment poses like any FK joint: the tip rides rigidly,
+    // the base joint below it holds still.
+    const w0 = solveWorld(defaultPose());
+    const p = resolveDrag(
+      defaultPose(), target('middleL2'), w0.middleL1.x - 1, w0.middleL1.y - 2,
+    );
+    const w = solveWorld(p);
+    expect(w.middleL3.y).toBeLessThan(w0.middleL3.y - 0.5);
+    expect(w.middleL1.x).toBeCloseTo(w0.middleL1.x, 6);
+    expect(w.wristL.x).toBeCloseTo(w0.wristL.x, 6);
+  });
+
+  it('has feet: a heel block and a real ankle→ball→toe chain', () => {
+    for (const s of ['L', 'R'] as const) {
+      const heel = on(`ankle${s}`)[0];
+      expect(heel.oz).toBeLessThan(0); // behind the ankle
+      // The chain steps forward (+z) and splays outward, so the foot is
+      // poseable even face-on…
+      const ball = restJoint(`ball${s}` as never);
+      const toe = restJoint(`toe${s}` as never);
+      expect(ball.dz).toBeGreaterThan(2);
+      expect(toe.dz).toBeGreaterThan(2);
+      expect(Math.sign(ball.dx)).toBe(s === 'L' ? -1 : 1);
+      // …and both foot bones are drawn shafts.
+      expect(BODY_CAPSULES.find((c) => c.b === `ball${s}`)).toBeDefined();
+      expect(BODY_CAPSULES.find((c) => c.b === `toe${s}`)).toBeDefined();
     }
+  });
+
+  it('the toe is an IK end effector: drag it and the foot bends at the ball', () => {
+    const t = dragTargetFor('toeL')!;
+    expect(t.kind).toBe('ik2');
+    expect(t.chain).toEqual(['ballL', 'toeL']);
+    expect(t.fine).toBeUndefined(); // a toe is a whole-figure move, not detail
+    // Reach the toe toward a point INSIDE the chain's apparent reach: it
+    // lands there (projected), the ankle holds, and the ball bends.
+    const w0 = solveWorld(defaultPose());
+    const ap = projectYaw(w0.ankleL.x, w0.ankleL.y, w0.ankleL.z, 0, w0.root.x);
+    const target0 = { px: ap.px - 1.5, py: ap.py - 3.0 };
+    const p = resolveDrag(defaultPose(), t, target0.px, target0.py);
+    const w = solveWorld(p);
+    const tp = projectYaw(w.toeL.x, w.toeL.y, w.toeL.z, 0, w.root.x);
+    expect(tp.px).toBeCloseTo(target0.px, 2);
+    expect(tp.py).toBeCloseTo(target0.py, 2);
+    expect(w.ankleL.y).toBeCloseTo(w0.ankleL.y, 6);
+    expect(Object.keys(p.angles).sort()).toEqual(['ballL', 'toeL']);
   });
 
   it('every blob hangs on a joint that exists', () => {
@@ -515,7 +637,7 @@ describe('drag-target coverage', () => {
   it('offers the AnimationMentor control set: hips, spine, chest, head, and both full limbs', () => {
     const joints = DRAG_TARGETS.map((t) => t.joint);
     for (const expected of [
-      'root', 'spine', 'chest', 'head',
+      'root', 'spine', 'chest', 'collar', 'head',
       'shoulderL', 'elbowL', 'wristL', 'shoulderR', 'elbowR', 'wristR',
       'kneeL', 'ankleL', 'kneeR', 'ankleR',
     ]) {

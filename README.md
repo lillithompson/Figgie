@@ -46,11 +46,22 @@ axis the viewer sees as vertical. There is no other camera control.
 
 ## Rendering
 
-WebGL1, two static meshes (sphere + open cylinder), one lambert program,
-~40 tiny draws per frame — and frames are drawn **on demand only** (one
-`requestAnimationFrame` per change), so an idle rig costs zero and a drag
-costs one small frame per pointer move. Comfortable at 90 fps inside an
-iOS WebView.
+WebGL1, two static meshes (sphere + open cylinder) for the classic look,
+one dynamic ribbon batch for the ink look — and frames are drawn **on
+demand only** (one `requestAnimationFrame` per change), so an idle rig
+costs zero and a drag costs one small frame per pointer move. Comfortable
+at 90 fps inside an iOS WebView.
+
+Two shaders (`shader` option / `setShader`): `'classic'` is the
+lambert-lit wooden mannequin; `'npr'` draws a hand-drawn construction
+figure instead — tapered, wobbling pen strokes for the bones (deterministic
+per-stroke character, no randomness), the chest rectangle and pelvis
+shield as closed shapes, circles at the limb joints, triangle hands and
+wedge feet, and an oval head whose eye line and center line curve on the
+ball and hide as it turns away. The whole sketch is built as 2D ribbons in
+view space (ink.ts, pure and node-tested) and drawn flat in one call — a
+line drawing, not a 3D shape; posing and hit-testing are identical in
+both.
 
 `projectSilhouette(pose, turn)` returns the same figure as depth-sorted 2D
 capsules and exact projected ellipses, so a host can bake the pose into

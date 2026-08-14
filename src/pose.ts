@@ -259,13 +259,16 @@ function rotatedLocal(
 }
 
 /** Which way a dead-straight limb folds when IK first bends it — per
- *  side, so elbows and knees break the way a mannequin's joints suggest. */
+ *  side, so elbows, knees and toes break the way a mannequin's joints
+ *  suggest. */
 function defaultBendSign(endId: JointId): number {
   switch (endId) {
     case 'wristL': return 1;
     case 'wristR': return -1;
     case 'ankleL': return -1;
     case 'ankleR': return 1;
+    case 'toeL': return -1;
+    case 'toeR': return 1;
     default: return 1;
   }
 }
