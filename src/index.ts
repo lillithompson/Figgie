@@ -29,6 +29,10 @@ export type { DragTarget, JointId } from './skeleton';
 export { posePrimitives, projectSilhouette } from './primitives';
 export type { FlatCapsule, FlatEllipse, FlatPrimitive, WorldPrimitive } from './primitives';
 export { buildInkDraw, fillBatch, inkBatch, sketchFills, sketchInk } from './ink';
+export {
+  FINGER_COLUMN, FIST_RANGE, SPINE_COLUMN, SPINE_RANGE, centered, curlHand, flexFoot, shapeSpine,
+} from './shape';
+export type { Side, SpineShape } from './shape';
 export type { InkBatch, InkDraw, InkFill, InkPoint, InkStroke } from './ink';
 export { fitStage, projectTurn, projectYaw, STAGE, turnQuat } from './view';
 export type { Fit, Turn, TurnLike } from './view';
