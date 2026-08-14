@@ -356,20 +356,47 @@ const PELVIS_VOL: ReadonlyArray<[number, number, number]> = [
   [6.8, 0.8, 3.0], [6.8, 0.8, -3.0], [4.4, -4.8, 2.2], [4.4, -4.8, -2.2],
   [0, -7.6, 1.6], [0, -7.6, -1.6], [-4.4, -4.8, 2.2], [-4.4, -4.8, -2.2],
 ];
-/** Palm VOLUMES, LEFT-authored (x mirrors for the right): the palm is
- *  TWO shallow boxes hinged at the mid-palm pin — the inner half rides
- *  the pin (rel `palmL`, which sits 3.8 out from the wrist), the outer
- *  rides the knuckle line (rel `knuckL`) and swings with the palm-bend
- *  effector. The inner box still starts beyond the wrist's drawn circle:
- *  the joint sits before the volume, never inside it. */
-const PALM_IN_BOX: ReadonlyArray<[number, number, number]> = [
-  [2.5, 2.6, 1.4], [2.5, 2.6, -1.4], [2.5, -2.3, 1.4], [2.5, -2.3, -1.4],
-  [-0.15, 2.65, 1.4], [-0.15, 2.65, -1.4], [-0.15, -2.35, 1.4], [-0.15, -2.35, -1.4],
+/** The palm: ONE solid, skinned — the chest's arrangement at hand scale.
+ *  LEFT-authored (x mirrors for the right, and the joint names take the
+ *  side), three rims from the wrist out:
+ *
+ *   - the INNER rim rides the mid-palm pin (`palmL`, 3.8 out from the
+ *     wrist), starting beyond the wrist's drawn circle so the joint sits
+ *     before the volume rather than inside it;
+ *   - the MID rim sits ON the pin and rides the knuckle line (`knuckL`) —
+ *     at the hinge itself, so it holds still while the outer half swings;
+ *   - the OUTER rim is the knuckle line, where the fingers hang.
+ *
+ *  Bending the palm effector therefore SHEARS one box and kinks its sides
+ *  at the pin, instead of hinging two separate shapes apart — the same
+ *  reason the chest is one skinned solid and not a stack of two.
+ *
+ *  The palm is a little shorter than it was: the wrist-side rim starts
+ *  2.1 out rather than 1.3, which frees the wrist circle and leaves the
+ *  hand reading as a hand rather than a paddle. */
+type PalmVert = ['palm' | 'knuck', number, number, number];
+
+const PALM_BINDS: ReadonlyArray<PalmVert> = [
+  // Inner rim (wrist end), rel the pin.
+  ['palm', 1.7, 2.55, 1.35], ['palm', 1.7, 2.55, -1.35],
+  ['palm', 1.7, -2.25, 1.35], ['palm', 1.7, -2.25, -1.35],
+  // Mid rim — the hinge line, ON the pin, rel the knuckle line.
+  ['knuck', 2.5, 2.65, 1.4], ['knuck', 2.5, 2.65, -1.4],
+  ['knuck', 2.5, -2.35, 1.4], ['knuck', 2.5, -2.35, -1.4],
+  // Outer rim: the knuckle line itself.
+  ['knuck', 0, 2.7, 1.4], ['knuck', 0, 2.7, -1.4],
+  ['knuck', 0, -2.4, 1.4], ['knuck', 0, -2.4, -1.4],
 ];
-const PALM_OUT_BOX: ReadonlyArray<[number, number, number]> = [
-  [2.35, 2.65, 1.4], [2.35, 2.65, -1.4], [2.35, -2.35, 1.4], [2.35, -2.35, -1.4],
-  [0, 2.7, 1.4], [0, 2.7, -1.4], [0, -2.4, 1.4], [0, -2.4, -1.4],
-];
+
+/** `PALM_BINDS` for one hand: the joints take the side, and the right
+ *  hand's x mirrors (the table is authored left, x running back toward
+ *  the wrist). */
+function palmBinds(side: 'L' | 'R'): BoundVert[] {
+  const mx = side === 'L' ? 1 : -1;
+  return PALM_BINDS.map(([joint, x, y, z]): BoundVert => [
+    `${joint}${side}` as JointId, mx * x, y, z,
+  ]);
+}
 /** The hand draws with a LIGHTER pen: the palm outline at half the body's
  *  stroke weight, so the detail stays legible at hand scale. The FINGERS
  *  carry a quarter more than that — five thin lines side by side read as
@@ -524,16 +551,13 @@ function massSilhouettes(
     joint: JointId,
     volume: ReadonlyArray<[number, number, number]>,
   ): BoundVert[] => volume.map(([x, y, z]): BoundVert => [joint, x, y, z]);
-  const mirror = (
-    v: ReadonlyArray<[number, number, number]>,
-  ): Array<[number, number, number]> => v.map(([x, y, z]) => [-x, y, z]);
   return [
     make('chest', CHEST_BINDS),
     make('pelvis', box('root', PELVIS_VOL)),
-    make('handL', box('palmL', PALM_IN_BOX), HAND_W),
-    make('handOutL', box('knuckL', PALM_OUT_BOX), HAND_W),
-    make('handR', box('palmR', mirror(PALM_IN_BOX)), HAND_W),
-    make('handOutR', box('knuckR', mirror(PALM_OUT_BOX)), HAND_W),
+    // One skinned solid per hand: the palm bends at its pin rather than
+    // coming apart into an inner and an outer plate.
+    make('handL', palmBinds('L'), HAND_W),
+    make('handR', palmBinds('R'), HAND_W),
     // Foot body rides the ball joint (posing the foot pitches it about
     // the ankle); the toe box rides the toe joint, so a toe drag bends
     // the foot at the ball — solid follows bone, drawn skinning.

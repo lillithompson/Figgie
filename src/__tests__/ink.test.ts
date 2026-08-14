@@ -8,6 +8,7 @@
 
 import { buildInkDraw, inkBatch, inkVector, sketchFills, sketchInk } from '../ink';
 import { defaultPose, resolveDrag, solveWorld } from '../pose';
+import { quatFromAxisAngle } from '../quat';
 import { dragTargetFor } from '../skeleton';
 import { projectYaw } from '../view';
 
@@ -271,7 +272,8 @@ describe('the batch and the accent', () => {
   it('fills the chest, pelvis and head as solid masses WITH depth', () => {
     const fills = sketchFills(defaultPose(), 0);
     expect(fills.map((f) => f.id)).toEqual([
-      'chest', 'pelvis', 'handL', 'handOutL', 'handR', 'handOutR',
+      // One solid per hand — the palm is skinned, not split in two.
+      'chest', 'pelvis', 'handL', 'handR',
       'footL', 'footR', 'toeL', 'toeR', 'head',
     ]);
     // Each solid sits BEHIND its own outline (the strokes at that plane
@@ -468,5 +470,50 @@ describe('the vector bake', () => {
   it('stays a modest amount of geometry — this bakes into every thumbnail', () => {
     expect(polys.length).toBeLessThan(220);
     expect(polys.reduce((n, p) => n + p.points.length, 0)).toBeLessThan(6000);
+  });
+});
+
+describe('the palm is one skinned solid', () => {
+  /** The palm-bend effector, folded in the view plane. */
+  const bentPalm = (angle: number) => ({
+    ...defaultPose(),
+    angles: { knuckL: quatFromAxisAngle(0, 0, 1, angle) },
+  });
+
+  it('draws ONE shape per hand, not an inner and an outer plate', () => {
+    const ids = sketchInk(defaultPose(), 0).map((s) => s.id);
+    expect(ids).toContain('handL');
+    expect(ids).toContain('handR');
+    expect(ids).not.toContain('handOutL');
+    expect(ids).not.toContain('handOutR');
+  });
+
+  it('kinks at the pin when the palm bends, staying one connected shape', () => {
+    // The mid rim rides the hinge, so bending shears the box: the outer
+    // half swings and the wrist half holds still — one silhouette, bent,
+    // rather than two shapes coming apart.
+    const flat = sketchFills(defaultPose(), 0).find((f) => f.id === 'handL')!;
+    const bent = sketchFills(bentPalm(0.8), 0).find((f) => f.id === 'handL')!;
+    const spanY = (f: typeof flat) => {
+      const ys = f.points.map((p) => p.y);
+      return Math.max(...ys) - Math.min(...ys);
+    };
+    expect(spanY(bent)).toBeGreaterThan(spanY(flat) * 1.15);
+    // …and the wrist end of it did NOT move (that rim rides the pin).
+    const wristEnd = (f: typeof flat) => Math.max(...f.points.map((p) => p.x));
+    expect(wristEnd(bent)).toBeCloseTo(wristEnd(flat), 6);
+  });
+
+  it('starts beyond the wrist’s own circle, and is shorter than the reach', () => {
+    const fill = sketchFills(defaultPose(), 0).find((f) => f.id === 'handL')!;
+    const world = solveWorld(defaultPose());
+    const inner = Math.max(...fill.points.map((p) => p.x));
+    // The left hand reaches out along −x: the solid begins past the wrist
+    // joint, so the drawn wrist circle is never buried inside it.
+    expect(inner).toBeLessThan(world.wristL.x);
+    // …and it ends at the knuckle line, where the fingers hang.
+    const outer = Math.min(...fill.points.map((p) => p.x));
+    expect(outer).toBeCloseTo(world.knuckL.x, 6);
+    expect(inner - outer).toBeLessThan(Math.abs(world.wristL.x - world.knuckL.x));
   });
 });
