@@ -481,13 +481,14 @@ describe('pose serialization', () => {
     expect(poseEquals(sanitizePose('x'), defaultPose())).toBe(true);
     const partial = sanitizePose({
       rootX: 12, rootY: Infinity,
-      angles: { elbowL: 0.5, neck: 3, bogus: 1, elbowR: NaN, wristL: [1, NaN, 0, 0] },
+      angles: { elbowL: 0.5, hipL: 3, bogus: 1, elbowR: NaN, wristL: [1, NaN, 0, 0] },
     });
     expect(partial.rootX).toBe(12);
     expect(partial.rootY).toBe(0); // non-finite dropped
     expect(partial.angles.elbowL).toBeDefined();
-    // Non-posable, unknown, and non-finite entries never survive.
-    expect(partial.angles).not.toHaveProperty('neck');
+    // Non-posable (the hip sockets), unknown and non-finite entries never
+    // survive.
+    expect(partial.angles).not.toHaveProperty('hipL');
     expect(partial.angles).not.toHaveProperty('bogus');
     expect(partial.angles).not.toHaveProperty('elbowR');
     expect(partial.angles).not.toHaveProperty('wristL');

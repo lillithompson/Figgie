@@ -23,17 +23,22 @@ import { Quat, quatFromAxisAngle, quatMul, quatNormalize } from './quat';
 export type Side = 'L' | 'R';
 
 /** How far a spine slider can carry the column, radians end to end (the
- *  total is shared out along {@link SPINE_COLUMN}). */
-export const SPINE_RANGE = { bend: 0.85, twist: 0.8, lean: 0.6 };
+ *  total is shared out along {@link SPINE_COLUMN}). The bend reaches far
+ *  enough to curl the figure right over — a deep stoop, not a polite nod —
+ *  because it arrives spread along the whole column rather than as a hinge
+ *  at one joint. */
+export const SPINE_RANGE = { bend: 2, twist: 0.8, lean: 0.6 };
 
-/** The column the spine sliders bend, hips → neck, and each joint's SHARE
- *  of the total (summing to 1). Every bone from the pelvis up takes some
- *  of the curve — weighted toward the base, the way a spine bends — so the
- *  figure arcs smoothly instead of hinging at one place. The collar is the
- *  last of them: it carries the shoulders, neck and head, which is what
- *  makes a deep bend bring the whole upper body round. */
+/** The column the spine sliders bend, stomach → head, and each joint's
+ *  SHARE of the total (summing to 1). Every bone from the pelvis up takes
+ *  some of the curve — weighted toward the base, the way a spine bends —
+ *  so the figure arcs smoothly instead of hinging at one place. The chain
+ *  runs all the way through: the collar carries the shoulders round, the
+ *  neck and head finish the curve, so a deep bend has the figure looking
+ *  down at its own feet rather than staring straight ahead from a folded
+ *  body. */
 export const SPINE_COLUMN: ReadonlyArray<[JointId, number]> = [
-  ['spine', 0.4], ['chest', 0.35], ['collar', 0.25],
+  ['spine', 0.3], ['chest', 0.26], ['collar', 0.19], ['neck', 0.13], ['head', 0.12],
 ];
 
 /** How far a finger travels closing into a fist, radians from straight to

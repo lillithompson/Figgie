@@ -27,7 +27,8 @@ export type JointId =
   | 'root'      // pelvis center — dragging it carries the whole figure
   | 'spine'     // lower-torso bend
   | 'chest'     // upper-torso bend
-  | 'neck'      // rigid riser the head pivots on (not itself posable)
+  | 'neck'      // the riser the head sits on — takes its own share of a
+               // spine bend, so the curve carries through to the head
   | 'head'      // head-ball center
   | 'collar'    // top of the chest — tilts the whole shoulder line
   | 'shoulderL' | 'shoulderR' // clavicle ends — dragging shrugs/swings
@@ -179,7 +180,7 @@ export const SKELETON: readonly RestJoint[] = [
   // about the sternum — and carries the neck and head with it, the way a
   // shoulder tilt leans a real head.
   { id: 'collar', parent: 'chest', dx: 0, dy: 5, dz: 0, posable: true },
-  { id: 'neck', parent: 'collar', dx: 0, dy: 2, dz: 0, posable: false },
+  { id: 'neck', parent: 'collar', dx: 0, dy: 2, dz: 0, posable: true },
   { id: 'head', parent: 'neck', dx: 0, dy: 11.8, dz: 0, posable: true },
   { id: 'shoulderL', parent: 'collar', dx: -9.5, dy: 0, dz: 0, posable: true },
   { id: 'shoulderR', parent: 'collar', dx: 9.5, dy: 0, dz: 0, posable: true },

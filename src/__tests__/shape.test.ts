@@ -9,7 +9,8 @@ import {
   FINGER_COLUMN, FIST_RANGE, SPINE_COLUMN, SPINE_RANGE, curlHand, flexFoot, shapeSpine, centered,
 } from '../shape';
 import { defaultPose, poseEquals, resolveDrag, solveWorld } from '../pose';
-import { dragTargetFor } from '../skeleton';
+import { quatRotate } from '../quat';
+import { JointId, dragTargetFor } from '../skeleton';
 
 describe('curlHand', () => {
   it('is flat at 0 and a closed fist at 1', () => {
@@ -152,28 +153,48 @@ describe('shapeSpine', () => {
     expect(r.head.x).toBeGreaterThan(w0.head.x + 4);
   });
 
-  it('shares the curve along the whole column, hips to neck', () => {
+  it('shares the curve along the whole column, stomach to head', () => {
     const p = shapeSpine(defaultPose(), { ...straight, bend: 1 });
-    // Every bone from the pelvis up takes some of it…
-    expect(Object.keys(p.angles).sort()).toEqual(['chest', 'collar', 'spine']);
+    // Every bone from the pelvis up takes some of it — the stomach, the
+    // chest, the shoulder girdle, and on through the neck to the head.
+    expect(Object.keys(p.angles).sort())
+      .toEqual(['chest', 'collar', 'head', 'neck', 'spine']);
     expect(SPINE_COLUMN.map(([, share]) => share).reduce((a, b) => a + b, 0)).toBeCloseTo(1, 9);
     // …weighted toward the base, so the arc is smooth rather than a hinge.
-    const angleOf = (id: 'spine' | 'chest' | 'collar') =>
+    const angleOf = (id: JointId) =>
       2 * Math.acos(Math.min(1, Math.abs(p.angles[id]![3])));
-    expect(angleOf('spine')).toBeGreaterThan(angleOf('chest'));
-    expect(angleOf('chest')).toBeGreaterThan(angleOf('collar'));
+    const column = SPINE_COLUMN.map(([id]) => angleOf(id));
+    for (let i = 1; i < column.length; i++) {
+      expect(column[i - 1]).toBeGreaterThan(column[i]);
+    }
     // The total is the full range the slider promises.
-    expect(angleOf('spine') + angleOf('chest') + angleOf('collar'))
-      .toBeCloseTo(SPINE_RANGE.bend, 6);
+    expect(column.reduce((a, b) => a + b, 0)).toBeCloseTo(SPINE_RANGE.bend, 6);
   });
 
-  it('carries the head and shoulders round with a deep bend', () => {
-    // The collar is part of the column, so the upper body follows rather
-    // than riding a straight chest.
+  it('bends far enough to fold the figure right over', () => {
+    // The range is the point of spreading it: a bend this deep would be a
+    // broken hinge at one joint, and reads as a stoop across five.
+    expect(SPINE_RANGE.bend).toBeGreaterThan(Math.PI / 2);
     const w0 = solveWorld(defaultPose());
     const w = solveWorld(shapeSpine(defaultPose(), { ...straight, bend: 1 }));
-    expect(w.head.z).toBeGreaterThan(w0.head.z + 4);
-    expect(w.shoulderL.z).toBeGreaterThan(w0.shoulderL.z + 2);
+    // The head ends up out in FRONT of the hips and down near them, not
+    // still up in the air.
+    expect(w.head.z).toBeGreaterThan(w0.head.z + 20);
+    expect(w.head.y).toBeLessThan(w0.root.y + 20);
+    // …and the shoulders came round with it.
+    expect(w.shoulderL.z).toBeGreaterThan(w0.shoulderL.z + 10);
+  });
+
+  it('turns the head with the curve, so the figure looks where it bends', () => {
+    // The head is the last link in the column: with a deep bend it faces
+    // the floor rather than staring level out of a folded body.
+    const straightHead = solveWorld(defaultPose());
+    const w = solveWorld(shapeSpine(defaultPose(), { ...straight, bend: 1 }));
+    const gaze = (world: typeof w) => {
+      const [, , dz] = quatRotate(world.head.rot, 0, 0, 1);
+      return dz;
+    };
+    expect(gaze(w)).toBeLessThan(gaze(straightHead));
   });
 
   it('is absolute, and the three sliders compose to one posture', () => {
