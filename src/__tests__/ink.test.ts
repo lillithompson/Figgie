@@ -346,13 +346,18 @@ describe('the batch and the accent', () => {
     }
   });
 
-  it('the hand draws with a lighter pen — half the body’s stroke weight', () => {
+  it('the hand draws with a lighter pen — the palm at half the body’s weight', () => {
     const strokes = sketchInk(defaultPose(), 0);
     const maxW = (id: string) =>
       Math.max(...strokes.find((s) => s.id === id)!.points.map((p) => p.w));
     // Palm outline vs the chest's; finger vs a limb bone.
     expect(maxW('handL')).toBeLessThan(maxW('chest') * 0.62);
-    expect(maxW('finger-middleL')).toBeLessThan(maxW('armL0') * 0.5);
+    expect(maxW('finger-middleL')).toBeLessThan(maxW('armL0') * 0.6);
+    // The fingers are the exception to the light hand: five lines side by
+    // side need a little more weight or the hand reads as hatching. They
+    // still come in under the palm they hang off.
+    expect(maxW('finger-middleL')).toBeGreaterThan(maxW('armL0') * 0.3);
+    expect(maxW('finger-middleL')).toBeLessThan(maxW('handL'));
   });
 
   it('batches the fills as depth geometry alongside the ink', () => {

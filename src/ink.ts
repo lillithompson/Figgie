@@ -370,10 +370,12 @@ const PALM_OUT_BOX: ReadonlyArray<[number, number, number]> = [
   [2.35, 2.65, 1.4], [2.35, 2.65, -1.4], [2.35, -2.35, 1.4], [2.35, -2.35, -1.4],
   [0, 2.7, 1.4], [0, 2.7, -1.4], [0, -2.4, 1.4], [0, -2.4, -1.4],
 ];
-/** The hand draws with a LIGHTER pen: palm outline and fingers at half
- *  the body's stroke weight, so the detail stays legible at hand scale. */
+/** The hand draws with a LIGHTER pen: the palm outline at half the body's
+ *  stroke weight, so the detail stays legible at hand scale. The FINGERS
+ *  carry a quarter more than that — five thin lines side by side read as
+ *  hatching rather than as fingers when they are as fine as the palm. */
 const HAND_W = SHAPE_W * 0.5;
-const FINGER_W = 0.28;
+const FINGER_W = 0.35;
 /** Foot VOLUMES, tapered rectangular solids in the foot chain's splayed
  *  rest frames: the BODY spans heel to ball (anchored at the ball joint,
  *  so posing the foot pitches it about the ankle) and the TOE box spans
