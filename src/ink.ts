@@ -203,6 +203,34 @@ function pen(
   return { id, closed, points };
 }
 
+/** The ribbon's two edge points at sample `i`: the centerline offset ±
+ *  its half-width, perpendicular to the local direction. The one place
+ *  the ribbon's shape is defined — the GL batch and the vector bake both
+ *  extrude through here, so a baked figure and a drawn one are the same
+ *  drawing. */
+function ribbonEdges(
+  pts: readonly InkPoint[],
+  i: number,
+): [{ x: number; y: number }, { x: number; y: number }] {
+  const prev = pts[Math.max(0, i - 1)];
+  const next = pts[Math.min(pts.length - 1, i + 1)];
+  let dx = next.x - prev.x;
+  let dy = next.y - prev.y;
+  const dl = Math.hypot(dx, dy);
+  if (dl > 1e-9) {
+    dx /= dl;
+    dy /= dl;
+  } else {
+    dx = 1;
+    dy = 0;
+  }
+  const p = pts[i];
+  return [
+    { x: p.x - dy * p.w, y: p.y + dx * p.w },
+    { x: p.x + dy * p.w, y: p.y - dx * p.w },
+  ];
+}
+
 /** Triangulate strokes into one ribbon batch: each point extrudes ± its
  *  half-width perpendicular to the local direction; consecutive pairs
  *  join as quads. Strokes the pen skipped contribute nothing. */
@@ -223,23 +251,12 @@ export function inkBatch(strokes: readonly InkStroke[]): InkBatch {
     if (pts.length < 2) continue;
     const first = v / 3;
     for (let i = 0; i < pts.length; i++) {
-      const prev = pts[Math.max(0, i - 1)];
-      const next = pts[Math.min(pts.length - 1, i + 1)];
-      let dx = next.x - prev.x;
-      let dy = next.y - prev.y;
-      const dl = Math.hypot(dx, dy);
-      if (dl > 1e-9) {
-        dx /= dl;
-        dy /= dl;
-      } else {
-        dx = 1;
-        dy = 0;
-      }
-      positions[v++] = pts[i].x - dy * pts[i].w;
-      positions[v++] = pts[i].y + dx * pts[i].w;
+      const [a, b] = ribbonEdges(pts, i);
+      positions[v++] = a.x;
+      positions[v++] = a.y;
       positions[v++] = pts[i].z;
-      positions[v++] = pts[i].x + dy * pts[i].w;
-      positions[v++] = pts[i].y - dx * pts[i].w;
+      positions[v++] = b.x;
+      positions[v++] = b.y;
       positions[v++] = pts[i].z;
     }
     for (let i = 0; i < pts.length - 1; i++) {
@@ -715,4 +732,107 @@ export function buildInkDraw(
     fills,
     accent: inkBatch([marker]),
   };
+}
+
+// ── The vector bake ─────────────────────────────────────────────────
+//
+// The GL path hides what passes behind a body mass with a depth buffer:
+// the masses fill depth-only, the ink draws depth-tested. A vector bake —
+// a page thumbnail, an exported image, anything drawn without a GL
+// context — has no depth buffer, so the same occlusion is resolved here,
+// on the CPU, before the ribbons become polygons: each mass is a convex
+// silhouette at ONE depth (massSilhouettes flattens it), so a stroke
+// sample is hidden exactly when some nearer mass's hull contains it. A
+// stroke that dips behind the chest comes out as two polygons with the
+// gap the mannequin's body would have made.
+
+/** A visible run of one stroke, as a closed polygon in view space (rig
+ *  units) ready to FILL — the ribbon the GL path triangulates, outlined.
+ *  `id` is the stroke's name, repeated when a stroke is clipped in two. */
+export interface InkPoly {
+  id: string;
+  points: Array<{ x: number; y: number }>;
+}
+
+/** Is (x, y) inside this convex polygon? Winding-agnostic: every edge
+ *  cross-product must share a sign (zeros — a point on an edge — count as
+ *  inside either way). */
+function pointInConvex(
+  poly: ReadonlyArray<{ x: number; y: number }>,
+  x: number,
+  y: number,
+): boolean {
+  let sign = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i];
+    const b = poly[(i + 1) % poly.length];
+    const c = (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
+    if (c > 1e-9) {
+      if (sign < 0) return false;
+      sign = 1;
+    } else if (c < -1e-9) {
+      if (sign > 0) return false;
+      sign = -1;
+    }
+  }
+  return true;
+}
+
+/** Does a solid mass cover this sample? The fills are flat in z, so the
+ *  depth test is one comparison — a mass NEARER the viewer than the
+ *  sample, whose silhouette contains it. */
+function inkHidden(fills: readonly InkFill[], p: InkPoint): boolean {
+  for (const f of fills) {
+    if (f.points.length < 3) continue;
+    if (f.points[0].z <= p.z) continue;
+    if (pointInConvex(f.points, p.x, p.y)) return true;
+  }
+  return false;
+}
+
+/** One run of samples → the closed outline of its ribbon: the left edge
+ *  forward, the right edge back. */
+function ribbonPoly(id: string, pts: readonly InkPoint[]): InkPoly {
+  const left: Array<{ x: number; y: number }> = [];
+  const right: Array<{ x: number; y: number }> = [];
+  for (let i = 0; i < pts.length; i++) {
+    const [a, b] = ribbonEdges(pts, i);
+    left.push(a);
+    right.push(b);
+  }
+  right.reverse();
+  return { id, points: [...left, ...right] };
+}
+
+/**
+ * The figure's ink as fillable polygons — the sketch drawn without a
+ * canvas. Same pen, same masses, same view as {@link buildInkDraw}; the
+ * body solids become occlusion rather than depth writes, so what a bake
+ * shows and what the stage shows are the same figure.
+ *
+ * Everything is one ink colour: the caller fills every polygon alike
+ * (nonzero rule — a ribbon may cross itself at a tight curve).
+ */
+export function inkVector(
+  pose: FiggiePose,
+  turn: TurnLike,
+  world: WorldJoints = solveWorld(pose),
+): InkPoly[] {
+  const strokes = sketchInk(pose, turn, world);
+  const fills = sketchFills(pose, turn, world);
+  const out: InkPoly[] = [];
+  for (const s of strokes) {
+    const pts = s.points;
+    let run: InkPoint[] = [];
+    const flush = () => {
+      if (run.length >= 2) out.push(ribbonPoly(s.id, run));
+      run = [];
+    };
+    for (const p of pts) {
+      if (inkHidden(fills, p)) flush();
+      else run.push(p);
+    }
+    flush();
+  }
+  return out;
 }

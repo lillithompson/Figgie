@@ -6,7 +6,7 @@
  * head ball and hides when the head turns away.
  */
 
-import { buildInkDraw, inkBatch, sketchFills, sketchInk } from '../ink';
+import { buildInkDraw, inkBatch, inkVector, sketchFills, sketchInk } from '../ink';
 import { defaultPose, resolveDrag, solveWorld } from '../pose';
 import { dragTargetFor } from '../skeleton';
 import { projectYaw } from '../view';
@@ -400,5 +400,68 @@ describe('the batch and the accent', () => {
     const cx = xs.reduce((s, x) => s + x, 0) / xs.length;
     const cy = ys.reduce((s, y) => s + y, 0) / ys.length;
     expect(Math.hypot(cx - p.px, cy - p.py)).toBeLessThan(1.5);
+  });
+});
+
+describe('the vector bake', () => {
+  const polys = inkVector(defaultPose(), 0);
+
+  it('turns every drawn stroke into closed, fillable ribbons', () => {
+    const ids = new Set(polys.map((p) => p.id));
+    for (const expected of ['spine', 'chest', 'armL0', 'head', 'joint-kneeR', 'footL']) {
+      expect(ids).toContain(expected);
+    }
+    // A ribbon outline is two edges of the same run: an even point count,
+    // at least a segment's worth.
+    for (const p of polys) {
+      expect(p.points.length).toBeGreaterThanOrEqual(4);
+      expect(p.points.length % 2).toBe(0);
+      for (const q of p.points) {
+        expect(Number.isFinite(q.x)).toBe(true);
+        expect(Number.isFinite(q.y)).toBe(true);
+      }
+    }
+  });
+
+  it('traces the same ribbon the GL batch triangulates', () => {
+    // The bake is the drawing, not a second drawing of it: the left edge
+    // of a poly's first sample IS the batch's first vertex.
+    const stroke = sketchInk(defaultPose(), 0).find((s) => s.id === 'spine')!;
+    const batch = inkBatch([stroke]);
+    const spine = polys.find((p) => p.id === 'spine')!;
+    // (the batch rounds to float32 on the way into its buffer)
+    expect(spine.points[0].x).toBeCloseTo(batch.positions[0], 4);
+    expect(spine.points[0].y).toBeCloseTo(batch.positions[1], 4);
+  });
+
+  it('hides what a solid mass covers — a turned figure loses its far arm', () => {
+    // Face the figure three-quarters away: the far upper arm passes behind
+    // the chest slab, so its stroke comes back clipped (or gone).
+    const turned = inkVector(defaultPose(), 2.2);
+    const front = polys.filter((p) => p.id === 'armR0');
+    const behind = turned.filter((p) => p.id === 'armR0');
+    const span = (runs: typeof polys) =>
+      runs.reduce((n, r) => n + r.points.length, 0);
+    expect(span(front)).toBeGreaterThan(0);
+    expect(span(behind)).toBeLessThan(span(front));
+  });
+
+  it('never lets a shape erase its own outline', () => {
+    // The masses sit FILL_BIAS behind their own outlines, so however the
+    // figure turns the chest still traces itself — the only bite out of it
+    // is where the pelvis solid genuinely crosses in front, exactly as the
+    // depth buffer clips it on the stage.
+    const drawn = sketchInk(defaultPose(), 0).find((s) => s.id === 'chest')!.points.length;
+    for (const yaw of [0, 0.9, 2.2, -1.4]) {
+      const runs = inkVector(defaultPose(), yaw).filter((p) => p.id === 'chest');
+      expect(runs.length).toBeGreaterThan(0);
+      const kept = runs.reduce((n, r) => n + r.points.length / 2, 0);
+      expect(kept).toBeGreaterThan(drawn * 0.6);
+    }
+  });
+
+  it('stays a modest amount of geometry — this bakes into every thumbnail', () => {
+    expect(polys.length).toBeLessThan(220);
+    expect(polys.reduce((n, p) => n + p.points.length, 0)).toBeLessThan(6000);
   });
 });
