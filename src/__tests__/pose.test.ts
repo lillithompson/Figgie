@@ -193,8 +193,10 @@ describe('the flesh on the bones', () => {
 
   it('finger segments are FINE drag targets — zoom-gated, knobless', () => {
     const fine = DRAG_TARGETS.filter((t) => t.fine);
-    // 3 segments x 5 fingers x 2 hands, plus each hand's palm effector.
-    expect(fine).toHaveLength(32);
+    // 3 segments x 5 fingers x 2 hands, plus each hand's palm effector and
+    // each foot's ball (the other joint that only separates zoomed in).
+    expect(fine).toHaveLength(34);
+    expect(fine.map((t) => t.joint)).toEqual(expect.arrayContaining(['ballL', 'ballR']));
     for (const t of fine) expect(t.kind).toBe('fk');
     // A middle segment poses like any FK joint: the tip rides rigidly,
     // the base joint below it holds still.

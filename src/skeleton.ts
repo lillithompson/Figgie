@@ -232,9 +232,10 @@ export interface DragTarget {
   kind: DragKind;
   /** ik2 only: the two posable joints the solve writes (chain root first). */
   chain?: [JointId, JointId];
-  /** FINE detail (fingers): offered only when the host says the hand is
-   *  big enough on screen to pick one finger from another — see
-   *  {@link HAND_SPAN}; hit tests skip fine targets otherwise. */
+  /** FINE detail (fingers, the ball of the foot): offered only when the
+   *  host says the figure is big enough on screen to pick one of these
+   *  from its neighbours — see {@link HAND_SPAN}; hit tests skip fine
+   *  targets otherwise, and no knob is drawn for them. */
   fine?: true;
 }
 
@@ -258,6 +259,18 @@ export const DRAG_TARGETS: readonly DragTarget[] = [
   // ball — exactly as a wrist drag bends the elbow.
   { joint: 'toeL', kind: 'ik2', chain: ['ballL', 'toeL'] },
   { joint: 'toeR', kind: 'ik2', chain: ['ballR', 'toeR'] },
+  // The BALL: the middle of the three foot joints, and the one that
+  // swings the whole foot about the ankle (heel down, toe pointed) while
+  // the ankle drag moves the leg and the toe drag bends the foot in two.
+  //
+  // FINE, like the fingers, because the foot points AT the viewer: face-on
+  // the three joints project barely two rig units apart — the ankle's own
+  // knob covers where the ball shows — so at ordinary sizes a ball target
+  // would only steal presses meant for the ankle. Once the host says the
+  // figure reads big, they separate on screen and all three are grabbable
+  // one from another.
+  { joint: 'ballL', kind: 'fk', fine: true },
+  { joint: 'ballR', kind: 'fk', fine: true },
   // Every posable finger segment, zoom-gated.
   ...SKELETON.filter((j) => j.posable && FINGER_JOINT_IDS.has(j.id))
     .map((j): DragTarget => ({ joint: j.id, kind: 'fk', fine: true })),

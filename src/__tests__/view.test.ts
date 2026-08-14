@@ -7,7 +7,7 @@
 import { defaultPose, resolveDrag, solveWorld, viewAxis } from '../pose';
 import { dragTargetFor } from '../skeleton';
 import { hitTest, HIT_RADIUS_PX } from '../hit';
-import { projectSilhouette } from '../primitives';
+import { posePrimitives, projectSilhouette } from '../primitives';
 import { STAGE, fitStage, projectTurn, projectYaw, turnQuat } from '../view';
 
 describe('projectYaw', () => {
@@ -180,6 +180,42 @@ describe('hitTest', () => {
     expect(hitTest(defaultPose(), 0, fit, base.x, base.y, true)?.target.joint)
       .toBe('knuckL');
     expect(hitTest(defaultPose(), 0, fit, tip.x, tip.y, true)?.target.joint).toBe('middleL3');
+  });
+
+  it('grabs ankle, ball and toe one from another once the gate opens', () => {
+    // The foot's three joints, each pressed dead on: with the gate open
+    // every one answers for itself — the middle of the foot is grabbable,
+    // and grabbing it does not disturb the other two.
+    const pose = defaultPose();
+    for (const joint of ['ankleL', 'ballL', 'toeL'] as const) {
+      const s = screenOf(joint);
+      expect(hitTest(pose, 0, fit, s.x, s.y, true)?.target.joint).toBe(joint);
+    }
+    // And each does its own thing: the ankle carries the leg (IK up the
+    // chain), the ball swings the whole foot about the ankle, the toe
+    // bends the foot in two.
+    expect(dragTargetFor('ankleL')!.kind).toBe('ik2');
+    expect(dragTargetFor('ballL')!.kind).toBe('fk');
+    expect(dragTargetFor('toeL')!.kind).toBe('ik2');
+  });
+
+  it('keeps the ball behind the gate — face-on it hides inside the ankle', () => {
+    // The foot points at the viewer, so the three project ~2.5 rig units
+    // apart — well inside the ankle's own knob. Offering the middle one at
+    // that size would just steal presses; without the gate a press there
+    // still means one of the two ENDS of the foot.
+    const ball = screenOf('ballL');
+    const joint = hitTest(defaultPose(), 0, fit, ball.x, ball.y)?.target.joint;
+    expect(joint).not.toBe('ballL');
+    expect(['ankleL', 'toeL']).toContain(joint);
+  });
+
+  it('draws no knob for the ball, as for the fingers', () => {
+    const knobs = posePrimitives(defaultPose()).filter((p) => p.kind === 'knob');
+    const joints = knobs.map((k) => (k as { joint: string }).joint);
+    expect(joints).toContain('ankleL');
+    expect(joints).toContain('toeL');
+    expect(joints).not.toContain('ballL');
   });
 
   it('captures within a thumb radius and no further', () => {
