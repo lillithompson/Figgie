@@ -135,6 +135,46 @@ export function flexFoot(pose: FiggiePose, side: Side, t: number): FiggiePose {
   return { ...pose, angles };
 }
 
+/** How far each rig-rotation slider can turn the whole figure, radians
+ *  end to end — a half turn each way on every axis, so the mannequin can
+ *  be stood in any orientation from three sliders. */
+export const RIG_SPIN_RANGE = Math.PI;
+
+export interface RigSpin {
+  /** Pitch: tip the whole figure forward (+) or back (−), −1..1. */
+  x: number;
+  /** Yaw: spin it about its own up axis, −1..1. */
+  y: number;
+  /** Roll: tip it sideways, −1..1. */
+  z: number;
+}
+
+/**
+ * Turn the WHOLE figure: the root's own rotation, which every other bone
+ * composes onto, so the pose underneath is untouched and the mannequin
+ * simply stands a different way round.
+ *
+ * Unlike the host's view Turn — which is a camera move, and which the bake
+ * records separately — this is part of the POSE: the figure really is
+ * oriented like this, and a drag on any joint still resolves in the view
+ * plane against it.
+ *
+ * Absolute like every other shaper, composed in the fixed order roll →
+ * pitch → yaw, and writing exactly one joint.
+ */
+export function rotateRig(pose: FiggiePose, spin: RigSpin): FiggiePose {
+  const unit = (v: number) => Math.max(-1, Math.min(1, Number.isFinite(v) ? v : 0));
+  const part = (v: number) => RIG_SPIN_RANGE * unit(v);
+  const roll = quatFromAxisAngle(0, 0, 1, part(spin.z));
+  const pitch = quatFromAxisAngle(1, 0, 0, part(spin.x));
+  const yaw = quatFromAxisAngle(0, 1, 0, part(spin.y));
+  const q = quatNormalize(quatMul(yaw, quatMul(pitch, roll)));
+  const angles: Angles = { ...pose.angles };
+  if (Math.abs(q[3]) >= 1 - 1e-9) delete angles.root;
+  else angles.root = q;
+  return { ...pose, angles };
+}
+
 export interface SpineShape {
   /** Curl forward (+) or arch back (−), −1..1. */
   bend: number;

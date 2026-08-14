@@ -114,7 +114,14 @@ export function solveWorld(pose: FiggiePose): WorldJoints {
   const out = {} as WorldJoints;
   for (const j of SKELETON) {
     if (!j.parent) {
-      out[j.id] = { x: j.dx + pose.rootX, y: j.dy + pose.rootY, z: j.dz, rot: QUAT_IDENTITY };
+      // The root's own rotation turns the whole figure: it is the frame
+      // every other bone composes onto (rotateRig writes it).
+      out[j.id] = {
+        x: j.dx + pose.rootX,
+        y: j.dy + pose.rootY,
+        z: j.dz,
+        rot: pose.angles[j.id] ?? QUAT_IDENTITY,
+      };
       continue;
     }
     const p = out[j.parent];

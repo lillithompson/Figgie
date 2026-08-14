@@ -172,7 +172,11 @@ export const FINGER_JOINT_IDS: ReadonlySet<JointId> = new Set(
  * long thin arms whose T-pose span is wider than the figure is tall.
  */
 export const SKELETON: readonly RestJoint[] = [
-  { id: 'root', parent: null, dx: 0, dy: 55, dz: 0, posable: false },
+  // The root takes a rotation of its own: turning it turns EVERYTHING, so
+  // a host can spin the whole figure on any axis from one control (see
+  // shape.ts's rotateRig). It has no parent bone to swing about — the
+  // translate drag moves it, nothing rotates it by hand.
+  { id: 'root', parent: null, dx: 0, dy: 55, dz: 0, posable: true },
   { id: 'spine', parent: 'root', dx: 0, dy: 8, dz: 0, posable: true },
   { id: 'chest', parent: 'spine', dx: 0, dy: 8, dz: 0, posable: true },
   // The COLLAR: the shoulder girdle at the top of the chest. Rotating it

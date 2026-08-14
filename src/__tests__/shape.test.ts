@@ -6,7 +6,8 @@
  */
 
 import {
-  FINGER_COLUMN, FIST_RANGE, SPINE_COLUMN, SPINE_RANGE, curlHand, flexFoot, shapeSpine, centered,
+  FINGER_COLUMN, FIST_RANGE, SPINE_COLUMN, SPINE_RANGE, curlHand, flexFoot, rotateRig, shapeSpine,
+  centered,
 } from '../shape';
 import { defaultPose, poseEquals, resolveDrag, solveWorld } from '../pose';
 import { quatRotate } from '../quat';
@@ -211,6 +212,54 @@ describe('shapeSpine', () => {
       expect(shaped.angles[id as keyof typeof shaped.angles]).toEqual(
         posed.angles[id as keyof typeof posed.angles],
       );
+    }
+  });
+});
+
+describe('rotateRig', () => {
+  const still = { x: 0, y: 0, z: 0 };
+
+  it('leaves the pose exactly as it found it at rest', () => {
+    const posed = shapeSpine(curlHand(defaultPose(), 'L', 0.6), { bend: 0.3, twist: 0, lean: 0 });
+    expect(poseEquals(rotateRig(posed, still), posed)).toBe(true);
+    expect(rotateRig(defaultPose(), still).angles).toEqual({});
+  });
+
+  it('turns the WHOLE figure, pose intact underneath', () => {
+    const w0 = solveWorld(defaultPose());
+    // A half turn about the up axis swaps left and right on screen…
+    const w = solveWorld(rotateRig(defaultPose(), { ...still, y: 1 }));
+    expect(w.wristL.x).toBeCloseTo(-w0.wristL.x, 6);
+    expect(w.head.y).toBeCloseTo(w0.head.y, 6);
+    // …and the joint that was 42 out to the left is still 42 from the root.
+    const reach = (a: typeof w0, id: 'wristL') =>
+      Math.hypot(a[id].x - a.root.x, a[id].y - a.root.y, a[id].z - a.root.z);
+    expect(reach(w, 'wristL')).toBeCloseTo(reach(w0, 'wristL'), 6);
+  });
+
+  it('tips forward on x and sideways on z', () => {
+    const w0 = solveWorld(defaultPose());
+    const pitched = solveWorld(rotateRig(defaultPose(), { ...still, x: 0.5 }));
+    expect(pitched.head.z).toBeGreaterThan(w0.head.z + 10); // face-first toward the viewer
+    const rolled = solveWorld(rotateRig(defaultPose(), { ...still, z: 0.5 }));
+    expect(rolled.head.x).not.toBeCloseTo(w0.head.x, 1);
+    expect(rolled.head.y).toBeLessThan(w0.head.y);
+  });
+
+  it('is absolute, and owns exactly one joint', () => {
+    const spin = { x: 0.3, y: -0.7, z: 0.1 };
+    const once = rotateRig(defaultPose(), spin);
+    const wandered = rotateRig(rotateRig(defaultPose(), { x: -1, y: 1, z: -1 }), spin);
+    expect(poseEquals(wandered, once)).toBe(true);
+    expect(Object.keys(once.angles)).toEqual(['root']);
+  });
+
+  it('composes with the other shapers rather than fighting them', () => {
+    // Disjoint joint sets: a spun figure keeps its fists and its curve.
+    const posed = curlHand(shapeSpine(defaultPose(), { bend: 0.5, twist: 0, lean: 0 }), 'R', 1);
+    const spun = rotateRig(posed, { x: 0, y: 0.5, z: 0 });
+    for (const id of Object.keys(posed.angles)) {
+      expect(spun.angles[id as keyof typeof spun.angles]).toEqual(posed.angles[id as keyof typeof posed.angles]);
     }
   });
 });
