@@ -12,7 +12,7 @@
 // always draws the same figure (renders are on demand and must be
 // repeatable), while no two strokes share a character.
 
-import { FiggiePose, WorldJoints, solveWorld } from './pose';
+import { FiggiePose, WorldJoints, defaultPose, solveWorld } from './pose';
 import { FINGER_NAMES, FOOT_SPLAY, JointId, knobRadius } from './skeleton';
 import { quatRotate } from './quat';
 import { TurnLike, projectTurn, turnQuat } from './view';
@@ -329,19 +329,44 @@ const EYE_ARC = 1.35;
 /** A silhouette vertex BOUND to a joint: the joint whose posed frame
  *  carries it, then the local (x, y, z) offset. Binding different rims of
  *  one volume to different joints is the skinning that lets a single
- *  solid bend. */
-type BoundVert = [JointId, number, number, number];
+ *  solid bend.
+ *
+ *  A vertex may also be WEIGHTED toward a second joint — `toward` and `w`,
+ *  0 = all the first joint, 1 = all the second. That is the difference
+ *  between a rim that kinks at a joint and one that curves through it: a
+ *  run of vertices whose weights climb from 0 to 1 hands the surface over
+ *  smoothly, so the shape shears rather than folding at one seam. */
+type BoundVert = [JointId, number, number, number, JointId?, number?];
 
-/** The chest: ONE solid, skinned. Its TOP rim is bound to the COLLAR (it
- *  rides the shoulder tilt), its bottom rim to the chest joint, and a mid
- *  rim — the added vertices — also rides the chest, so a collar tilt
- *  shears the box and kinks its sides at the waistline instead of
- *  splitting it into two shapes. Face-on and untilted its silhouette is
- *  the classic rectangle; turned, the hull traces the box's outline. */
+/** The chest: ONE solid, skinned. Its bottom rim is bound to the chest
+ *  joint and a mid rim — the waistline — with it, so a collar tilt shears
+ *  the box and kinks its sides there instead of splitting it into two
+ *  shapes. Turned, the hull traces the box's outline.
+ *
+ *  Its TOP is a shallow DOME, and the dome is where the shoulders live.
+ *  The rim runs sternum → mid → corner on each side with the weight
+ *  climbing 0 → 0.8 → 1 from the collar onto that side's SHOULDER, so
+ *  pulling one shoulder up or down carries the chest's top surface with
+ *  it: at the shoulder the rim goes the whole way, at the sternum not at
+ *  all, and between them it bends. The middle vertex takes most of the
+ *  shoulder's travel (0.8, not the 0.6 its position would suggest) because
+ *  the corner swings on an ARC — it rises faster than a straight blend
+ *  predicts, and a mid vertex that lagged it would sink inside the outline
+ *  and leave a flat bevel where the curve should be.
+ *
+ *  A flat top could show none of this: it would read as one rigid lid
+ *  however far the shoulders travelled, which is why the rim domes at rest
+ *  rather than ruling straight across. */
 const CHEST_BINDS: ReadonlyArray<BoundVert> = [
-  // Top rim, rel collar (5 above the chest joint).
-  ['collar', -8.2, 1.2, 3.6], ['collar', 8.2, 1.2, 3.6],
-  ['collar', -8.2, 1.2, -3.6], ['collar', 8.2, 1.2, -3.6],
+  // Top rim, rel collar (5 above the chest joint) — front face then back.
+  ['collar', 0, 2.8, 3.6],
+  ['collar', -3.6, 2.64, 3.6, 'shoulderL', 0.52], ['collar', 3.6, 2.64, 3.6, 'shoulderR', 0.52],
+  ['collar', -6.4, 2.2, 3.6, 'shoulderL', 0.9], ['collar', 6.4, 2.2, 3.6, 'shoulderR', 0.9],
+  ['collar', -8.2, 1.2, 3.6, 'shoulderL', 1], ['collar', 8.2, 1.2, 3.6, 'shoulderR', 1],
+  ['collar', 0, 2.8, -3.6],
+  ['collar', -3.6, 2.64, -3.6, 'shoulderL', 0.52], ['collar', 3.6, 2.64, -3.6, 'shoulderR', 0.52],
+  ['collar', -6.4, 2.2, -3.6, 'shoulderL', 0.9], ['collar', 6.4, 2.2, -3.6, 'shoulderR', 0.9],
+  ['collar', -8.2, 1.2, -3.6, 'shoulderL', 1], ['collar', 8.2, 1.2, -3.6, 'shoulderR', 1],
   // Mid rim (the bend's waistline), rel chest.
   ['chest', -7.1, -2.15, 3.3], ['chest', 7.1, -2.15, 3.3],
   ['chest', -7.1, -2.15, -3.3], ['chest', 7.1, -2.15, -3.3],
@@ -538,17 +563,38 @@ interface MassSilhouette {
   width: number;
 }
 
+/** Rest positions of every joint — what a weighted vertex's offset in its
+ *  SECOND bind frame is measured from. Both frames rest unrotated, so the
+ *  change of frame is the plain translation between the two joints. */
+const REST_JOINTS: WorldJoints = solveWorld(defaultPose());
+
 function massSilhouettes(
   world: WorldJoints,
   turn: TurnLike,
 ): MassSilhouette[] {
   const { L } = frameOf(world, turn);
+  /** One bound vertex, projected. A weighted vertex is carried by BOTH
+   *  frames and blended between them — linear blend skinning, done on the
+   *  projected points because the projection is affine and cannot tell the
+   *  difference. */
+  const skin = ([joint, x, y, z, toward, w]: BoundVert): P2 => {
+    const a = L(joint, x, y, z);
+    if (toward === undefined || !w) return a;
+    const from = REST_JOINTS[joint];
+    const onto = REST_JOINTS[toward];
+    const b = L(toward, x + from.x - onto.x, y + from.y - onto.y, z + from.z - onto.z);
+    return {
+      x: a.x + (b.x - a.x) * w,
+      y: a.y + (b.y - a.y) * w,
+      z: a.z + (b.z - a.z) * w,
+    };
+  };
   const make = (
     id: string,
     binds: ReadonlyArray<BoundVert>,
     width = SHAPE_W,
   ): MassSilhouette => {
-    const proj = binds.map(([joint, x, y, z]) => L(joint, x, y, z));
+    const proj = binds.map(skin);
     const zc = proj.reduce((s, p) => s + p.z, 0) / proj.length;
     const guide = convexHull(proj).map((p) => ({ x: p.x, y: p.y, z: zc }));
     return { id, guide, fillZ: zc - FILL_BIAS, width };

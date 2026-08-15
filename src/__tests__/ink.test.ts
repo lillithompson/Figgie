@@ -7,7 +7,7 @@
  */
 
 import { buildInkDraw, inkBatch, inkVector, sketchFills, sketchInk } from '../ink';
-import { defaultPose, resolveDrag, solveWorld } from '../pose';
+import { FiggiePose, defaultPose, resolveDrag, solveWorld } from '../pose';
 import { quatFromAxisAngle } from '../quat';
 import { dragTargetFor } from '../skeleton';
 import { projectYaw } from '../view';
@@ -208,10 +208,14 @@ describe('the drawing follows the pose and the turn', () => {
     const tilted = resolveDrag(
       defaultPose(), dragTargetFor('collar')!, w0.chest.x - 2.3, w0.chest.y + 4.5,
     );
+    // Measured at the two ENDS of the top rim — its outermost points above
+    // the chest joint. The middle of that rim is a dome of its own, so
+    // "the highest point on each side" would read the dome, not the shear.
     const topOf = (pose: typeof tilted, side: -1 | 1) => {
-      const pts = byId(sketchInk(pose, 0), 'chest')!.points;
-      return Math.max(...pts.filter((p) => Math.sign(p.x - w0.chest.x) === side
-        && Math.abs(p.x - w0.chest.x) > 2).map((p) => p.y));
+      const pts = sketchFills(pose, 0).find((f) => f.id === 'chest')!.points
+        .filter((p) => p.y > w0.chest.y);
+      return pts.reduce((best, p) =>
+        (p.x - w0.chest.x) * side > (best.x - w0.chest.x) * side ? p : best).y;
     };
     // Level at rest; sheared once tilted — and still one closed stroke,
     // one fill.
@@ -219,6 +223,75 @@ describe('the drawing follows the pose and the turn', () => {
     expect(Math.abs(topOf(tilted, -1) - topOf(tilted, 1))).toBeGreaterThan(3.5);
     expect(byId(sketchInk(tilted, 0), 'chest')!.closed).toBe(true);
     expect(sketchFills(tilted, 0).filter((f) => f.id === 'chest')).toHaveLength(1);
+  });
+
+  describe('the chest’s top rim is skinned to the shoulders', () => {
+    const w0 = solveWorld(defaultPose());
+    /** The top rim: the chest hull's points above the chest joint, left to
+     *  right, in the chest joint's own coordinates. */
+    const rim = (pose: FiggiePose) => sketchFills(pose, 0)
+      .find((f) => f.id === 'chest')!.points
+      .filter((p) => p.y > w0.chest.y)
+      .map((p) => ({ x: p.x - w0.chest.x, y: p.y - w0.chest.y }))
+      .sort((a, b) => a.x - b.x);
+    /** Every turn of a left-to-right run, as a cross product: all negative
+     *  means the run bends one way the whole way across — a dome. */
+    const turns = (pts: Array<{ x: number; y: number }>) => pts.slice(2).map((c, i) => {
+      const [a, b] = [pts[i], pts[i + 1]];
+      return (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+    });
+    /** Pull one shoulder up by `dy`. */
+    const shrug = (side: 'L' | 'R', dy: number) => resolveDrag(
+      defaultPose(), dragTargetFor(`shoulder${side}` as never)!,
+      w0[`shoulder${side}`].x, w0[`shoulder${side}`].y + dy,
+    );
+
+    it('domes at rest, so there is a curve to move at all', () => {
+      const rest = rim(defaultPose());
+      expect(rest.length).toBeGreaterThanOrEqual(7);
+      for (const t of turns(rest)) expect(t).toBeLessThan(0);
+      // Symmetric, and the middle stands proud of the ends.
+      expect(rest[0].y).toBeCloseTo(rest[rest.length - 1].y, 6);
+      const mid = rest[Math.floor(rest.length / 2)];
+      expect(mid.y).toBeGreaterThan(rest[0].y + 0.8);
+    });
+
+    /** How high the rim runs over the chest's centre line. */
+    const overCentre = (pts: Array<{ x: number; y: number }>) => {
+      const i = pts.findIndex((p) => p.x >= 0);
+      const [a, b] = [pts[i - 1] ?? pts[i], pts[i]];
+      return b.x === a.x ? b.y : a.y + (b.y - a.y) * ((0 - a.x) / (b.x - a.x));
+    };
+
+    it('carries that side of the rim with the shoulder, and holds the sternum', () => {
+      const rest = rim(defaultPose());
+      const up = rim(shrug('L', 4));
+      // The rim's left end went up with the shoulder…
+      expect(up[0].y).toBeGreaterThan(rest[0].y + 1);
+      // …the right end stayed where it was — one shoulder, one side…
+      expect(up[up.length - 1].y).toBeCloseTo(rest[rest.length - 1].y, 6);
+      // …and over the sternum, weighted onto neither shoulder, the rim
+      // barely stirred: the lift dies out across the chest — a quarter of
+      // what the end travelled, at most — which is what makes it a curve
+      // and not a lid being tipped.
+      const end = up[0].y - rest[0].y;
+      expect(Math.abs(overCentre(up) - overCentre(rest))).toBeLessThan(end * 0.25);
+    });
+
+    it('stays a curve under the shrug — it bends, never folds to a lid', () => {
+      // Whichever way a shoulder goes, the rim over that half keeps a bend
+      // in it: more than one point between the shoulder and the middle of
+      // the chest, and the whole run still turning one way. A rigid top rim
+      // could only ever be a straight lid, tilted.
+      for (const dy of [4, -4]) {
+        for (const side of ['L', 'R'] as const) {
+          const pts = rim(shrug(side, dy));
+          const moved = pts.filter((p) => (side === 'L' ? p.x < 0 : p.x > 0));
+          expect(moved.length).toBeGreaterThanOrEqual(2);
+          for (const t of turns(pts)) expect(t).toBeLessThan(0);
+        }
+      }
+    });
   });
 
   it('the chest and pelvis trace their SILHOUETTES — never a flat plate', () => {
