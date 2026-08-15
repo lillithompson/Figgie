@@ -7,7 +7,7 @@
 
 import {
   FINGER_COLUMN, FIST_RANGE, SPINE_COLUMN, SPINE_RANGE, curlHand, flexFoot, rotateRig, shapeSpine,
-  centered,
+  centered, twistAnkle, twistWrist,
 } from '../shape';
 import { defaultPose, poseEquals, resolveDrag, solveWorld } from '../pose';
 import { quatRotate } from '../quat';
@@ -284,5 +284,73 @@ describe('rotateRig', () => {
     for (const id of Object.keys(posed.angles)) {
       expect(spun.angles[id as keyof typeof spun.angles]).toEqual(posed.angles[id as keyof typeof posed.angles]);
     }
+  });
+});
+
+describe('twistWrist / twistAnkle', () => {
+  const dist = (a: { x: number; y: number; z: number }, b: typeof a) =>
+    Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+
+  it('leaves the pose alone at centre, and rolls the hand off it', () => {
+    expect(poseEquals(twistWrist(defaultPose(), 'L', 0), defaultPose())).toBe(true);
+    const w0 = solveWorld(defaultPose());
+    const w = solveWorld(twistWrist(defaultPose(), 'L', 1));
+    // The wrist itself has not budged — a roll turns the hand in place…
+    expect(dist(w.wristL, w0.wristL)).toBeCloseTo(0, 9);
+    expect(dist(w.elbowL, w0.elbowL)).toBeCloseTo(0, 9);
+    // …but the hand swings round it, and keeps its reach doing so. Read at
+    // the THUMB: the other fingers reach straight down the forearm's line,
+    // which is the axis itself, and barely move however far it rolls.
+    expect(dist(w.thumbL3, w0.thumbL3)).toBeGreaterThan(2);
+    expect(dist(w.thumbL3, w.wristL)).toBeCloseTo(dist(w0.thumbL3, w0.wristL), 6);
+  });
+
+  it('swivels the foot about the shin without moving the ankle', () => {
+    expect(poseEquals(twistAnkle(defaultPose(), 'R', 0), defaultPose())).toBe(true);
+    const w0 = solveWorld(defaultPose());
+    const w = solveWorld(twistAnkle(defaultPose(), 'R', 1));
+    expect(dist(w.ankleR, w0.ankleR)).toBeCloseTo(0, 9);
+    expect(dist(w.toeR, w0.toeR)).toBeGreaterThan(1);
+    // A swivel about the vertical shin: the toe circles at its own height.
+    expect(w.toeR.y).toBeCloseTo(w0.toeR.y, 6);
+  });
+
+  it('turns the two sides in mirror, not in convoy', () => {
+    // One sign of the slider means the same thing on both sides — hands
+    // rolling the same way as each other, toes both turning outward.
+    const w0 = solveWorld(defaultPose());
+    for (const [f, joint] of [[twistWrist, 'thumbL3'], [twistAnkle, 'toeL']] as const) {
+      const mirror = joint.replace('L', 'R') as JointId;
+      const l = solveWorld(f(defaultPose(), 'L', 1));
+      const r = solveWorld(f(defaultPose(), 'R', 1));
+      expect(l[joint].x - w0[joint].x).toBeCloseTo(-(r[mirror].x - w0[mirror].x), 6);
+      expect(l[joint].z - w0[joint].z).toBeCloseTo(r[mirror].z - w0[mirror].z, 6);
+    }
+  });
+
+  it('is absolute, and keeps the reach a drag posed', () => {
+    // The wrist is where an arm's IK lands, so a twist must not undo it:
+    // the hand rolls, the wrist stays exactly where the drag left it, and
+    // twisting twice running gives the identical pose.
+    const w0 = solveWorld(defaultPose());
+    const reached = resolveDrag(
+      defaultPose(), dragTargetFor('wristL')!, w0.shoulderL.x - 6, w0.shoulderL.y - 14,
+    );
+    const posed = solveWorld(reached);
+    const once = twistWrist(reached, 'L', 0.6);
+    expect(poseEquals(twistWrist(once, 'L', 0.6), once)).toBe(true);
+    const w = solveWorld(once);
+    expect(dist(w.wristL, posed.wristL)).toBeCloseTo(0, 6);
+    expect(dist(w.elbowL, posed.elbowL)).toBeCloseTo(0, 6);
+    // Back to centre and the arm is left as the drag made it.
+    expect(poseEquals(twistWrist(once, 'L', 0), reached)).toBe(true);
+  });
+
+  it('touches ONE joint per side, and none the other shapers own', () => {
+    const hand = twistWrist(twistAnkle(defaultPose(), 'R', 0.5), 'L', 0.5);
+    expect(Object.keys(hand.angles).sort()).toEqual(['ankleR', 'wristL']);
+    // Curl and flex still own their own joints, so a part's sliders stack.
+    const both = flexFoot(twistAnkle(defaultPose(), 'L', 0.5), 'L', 0);
+    expect(Object.keys(both.angles).sort()).toEqual(['ankleL', 'heelL', 'toeL']);
   });
 });

@@ -17,8 +17,10 @@
 // touches the pose once the user moves one.
 
 import { FiggiePose } from './pose';
-import { FINGER_NAMES, FOOT_SPLAY, JointId } from './skeleton';
-import { Quat, quatFromAxisAngle, quatMul, quatNormalize } from './quat';
+import { FINGER_NAMES, FOOT_SPLAY, JointId, restJoint } from './skeleton';
+import {
+  QUAT_IDENTITY, Quat, quatFromAxisAngle, quatInv, quatIsIdentity, quatMul, quatNormalize,
+} from './quat';
 
 export type Side = 'L' | 'R';
 
@@ -87,6 +89,97 @@ function setAngle(angles: Angles, id: JointId, axis: [number, number, number], a
     return;
   }
   angles[id] = quatFromAxisAngle(axis[0], axis[1], axis[2], angle);
+}
+
+/** How far a twist slider rolls a joint about its own bone, radians end to
+ *  end. The WRIST turns nearly as far as a forearm really does; the ANKLE
+ *  barely turns at all by comparison, which is also true of the real
+ *  thing — a foot that swivelled like a hand would read as broken. */
+export const TWIST_RANGE = { wrist: 3.0, ankle: 1.2 };
+
+/** The direction a bone points at rest, in its PARENT's frame — the axis a
+ *  roll of that bone turns about. Taken from the skeleton rather than
+ *  written down here, so it can never fall out of step with it. */
+function boneAxis(id: JointId): [number, number, number] {
+  const j = restJoint(id);
+  const len = Math.hypot(j.dx, j.dy, j.dz) || 1;
+  return [j.dx / len, j.dy / len, j.dz / len];
+}
+
+/**
+ * ROLL one joint about its own bone, leaving where the bone points alone.
+ *
+ * Every other shaper owns its joints outright and writes them from
+ * scratch. A wrist or an ankle can't be owned that way: they are also
+ * where a drag's IK lands, and overwriting one would throw away the reach
+ * the player posed. So this splits the joint's rotation in two — the SWING
+ * that aims the bone, and the TWIST that rolls it about its own length —
+ * keeps the swing exactly as it found it, and rewrites only the twist.
+ *
+ * That leaves the shaper absolute all the same: re-deriving from the
+ * slider twice running gives the identical rotation, because the swing it
+ * reads back carries no roll of its own to compound with.
+ */
+function setTwist(
+  angles: Angles, id: JointId, axis: [number, number, number], angle: number,
+): void {
+  const [ax, ay, az] = axis;
+  const held = angles[id];
+  let swing = QUAT_IDENTITY;
+  if (held) {
+    // The rotation's vector part along the bone IS its roll; divide that
+    // out and what remains is the aim. (A half turn square across the bone
+    // has no roll to speak of — the projection vanishes — and leaves the
+    // aim untouched, which is the right answer anyway.)
+    const d = held[0] * ax + held[1] * ay + held[2] * az;
+    const roll: Quat = [ax * d, ay * d, az * d, held[3]];
+    swing = Math.hypot(...roll) < 1e-6
+      ? held
+      : quatNormalize(quatMul(held, quatInv(quatNormalize(roll))));
+  }
+  const out = quatNormalize(quatMul(swing, quatFromAxisAngle(ax, ay, az, angle)));
+  if (quatIsIdentity(out, 1e-6)) delete angles[id];
+  else angles[id] = out;
+}
+
+/**
+ * Twist one wrist: `t` −1..1, 0 = as the arm left it. The hand rolls about
+ * the forearm's own line — the turn that shows a palm or the back of a
+ * hand — and the arm's reach is untouched, so twisting a hand the player
+ * dragged somewhere leaves it exactly where they put it. Writes only that
+ * wrist.
+ */
+export function twistWrist(pose: FiggiePose, side: Side, t: number): FiggiePose {
+  const wrist = `wrist${side}` as JointId;
+  const angles: Angles = { ...pose.angles };
+  // Each forearm points OUT from the body, so the two bone axes already
+  // face opposite ways. Mirroring the hands — both palms turning toward
+  // the figure, or both away — therefore wants the SAME turn in the world,
+  // which is opposite signs about those two axes.
+  const sign = side === 'L' ? -1 : 1;
+  setTwist(angles, wrist, boneAxis(wrist), (TWIST_RANGE.wrist / 2) * centeredValue(t) * sign);
+  return { ...pose, angles };
+}
+
+/**
+ * Twist one ankle: `t` −1..1, 0 = as the leg left it. The foot swivels
+ * about the shin's line — toes turning out or in — while the leg's reach
+ * stays put. Writes only that ankle.
+ */
+export function twistAnkle(pose: FiggiePose, side: Side, t: number): FiggiePose {
+  const ankle = `ankle${side}` as JointId;
+  const angles: Angles = { ...pose.angles };
+  // Both shins point straight DOWN — one axis, no left or right of its own
+  // — so here it is the SENSE of the turn that mirrors the two feet, and
+  // one sign of the slider turns both sets of toes outward.
+  const sign = side === 'L' ? 1 : -1;
+  setTwist(angles, ankle, boneAxis(ankle), (TWIST_RANGE.ankle / 2) * centeredValue(t) * sign);
+  return { ...pose, angles };
+}
+
+/** −1..1, clamped — what a centered slider hands a shaper. */
+function centeredValue(v: number): number {
+  return !Number.isFinite(v) ? 0 : v < -1 ? -1 : v > 1 ? 1 : v;
 }
 
 /**
