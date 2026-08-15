@@ -221,11 +221,34 @@ describe('shapeSpine', () => {
     expect(gaze(w)).toBeLessThan(gaze(straightHead));
   });
 
-  it('is absolute, and the three sliders compose to one posture', () => {
+  it('is absolute about the pose it is HANDED, off any base', () => {
+    // One base and one triple make one posture however the sliders got
+    // there: a host feeding the same base re-derives, never compounds.
     const shape = { bend: 0.4, twist: -0.6, lean: 0.2 };
-    const once = shapeSpine(defaultPose(), shape);
-    const wandered = shapeSpine(shapeSpine(defaultPose(), { bend: -1, twist: 1, lean: -1 }), shape);
-    expect(poseEquals(wandered, once)).toBe(true);
+    for (const base of [defaultPose(), curlHand(defaultPose(), 'R', 1)]) {
+      expect(poseEquals(shapeSpine(base, shape), shapeSpine(base, shape))).toBe(true);
+    }
+    // And off a STRAIGHT base it is the posture it always was — the fixed
+    // lean-then-bend-then-twist composition, nothing else touched.
+    expect(Object.keys(shapeSpine(defaultPose(), shape).angles).sort())
+      .toEqual(SPINE_COLUMN.map(([id]) => id).sort());
+  });
+
+  it('keeps a bend the pose already had, and leans it side to side', () => {
+    // The bug this fixes: the column was written over from the sliders, so
+    // a spine already bent — by hand, or loaded from a saved page, where
+    // slider positions do not survive — sprang straight the moment any
+    // slider moved. Each slider owns its own dimension and leaves the rest.
+    const bent = shapeSpine(defaultPose(), { ...straight, bend: 1 });
+    const posed = solveWorld(bent);
+    // Sliders back at rest, LEAN alone moved: the head goes sideways…
+    const leaned = solveWorld(shapeSpine(bent, { ...straight, lean: 1 }));
+    expect(Math.abs(leaned.head.x - posed.head.x)).toBeGreaterThan(2);
+    // …and the figure is still folded over, not stood back up.
+    expect(leaned.head.z).toBeGreaterThan(posed.head.z * 0.8);
+    expect(leaned.head.y).toBeLessThan(posed.head.y + 4);
+    // Centre every slider and the pose is left exactly as it was.
+    expect(poseEquals(shapeSpine(bent, straight), bent)).toBe(true);
   });
 
   it('leaves the limbs alone — only the column moves', () => {

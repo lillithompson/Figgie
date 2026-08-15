@@ -2,14 +2,24 @@
 // slider — curl a hand into a fist, point or flatten a foot, bend / twist /
 // lean the spine.
 //
-// Every shaper is ABSOLUTE, not a delta: it writes the joints it owns
-// straight from its parameter and leaves every other joint alone. That is
-// what lets a slider drive one: dragging it repeatedly re-derives the same
-// joints instead of compounding, and two shapers never fight because their
-// joint sets are disjoint (one hand, one foot, the spine column). Identity
-// results are ELIDED rather than stored, so a shaper at rest leaves a pose
-// byte-identical to one that was never shaped — which is what keeps a
-// "nothing changed" commit from building an undo entry.
+// Every shaper is ABSOLUTE, not a delta: dragging a slider repeatedly
+// re-derives the same joints instead of compounding, and two shapers never
+// fight because their joint sets are disjoint (one hand, one foot, the
+// spine column). Identity results are ELIDED rather than stored, so a
+// shaper at rest leaves a pose byte-identical to one that was never shaped
+// — which is what keeps a "nothing changed" commit from building an undo
+// entry.
+//
+// They differ in what they are absolute ABOUT. curlHand and flexFoot own
+// their joints outright and write them from scratch: a hand has no single
+// "fistness" to preserve, so the slider simply says what the hand is. The
+// spine and the twists instead take the pose they are handed as their
+// zero and add their own dimension to it, because those joints carry other
+// posing too — a dragged reach, a bend the player put in by hand — and a
+// slider that owns one dimension must not throw the rest away. Those
+// shapers are absolute only with respect to the pose given them, so a host
+// must feed them one fixed base pose for as long as a set of slider
+// positions is live.
 //
 // The host decides WHEN to apply one. Figgie deliberately offers no way to
 // read a slider position back out of a pose: a hand posed finger by finger
@@ -287,13 +297,25 @@ export interface SpineShape {
 
 /**
  * Shape the spine column: bend, twist and lean together, since all three
- * write the SAME two bones (the lower spine and the chest). Each parameter
- * is −1..1 with 0 straight; the total for each is split evenly between the
- * bones, so the column curves rather than hinging at one point.
+ * write the SAME bones. Each parameter is −1..1 with 0 meaning "as the
+ * pose already stood"; the total for each is split along the column, so it
+ * curves rather than hinging at one point.
  *
  * The three compose in a fixed order — lean, then bend, then twist — so a
  * given triple always produces the same posture however the sliders were
  * moved to reach it.
+ *
+ * It ADDS that shape to whatever the column already holds rather than
+ * writing over it, and adds it in the figure's OWN frame: lean an
+ * already-bent spine and it tips sideways from where it stood, keeping the
+ * bend, which is what a slider that owns one dimension has to do. (Over a
+ * straight column the two are the same thing, so a figure posed only from
+ * these sliders is shaped exactly as it always was.)
+ *
+ * Adding rather than overwriting means it is absolute only with respect to
+ * the pose it is HANDED: a host must keep feeding it the same base pose
+ * for as long as one set of slider positions is live, or a second nudge of
+ * a slider will pile onto the first instead of replacing it.
  */
 export function shapeSpine(pose: FiggiePose, shape: SpineShape): FiggiePose {
   const unit = (v: number) => Math.max(-1, Math.min(1, Number.isFinite(v) ? v : 0));
@@ -305,7 +327,11 @@ export function shapeSpine(pose: FiggiePose, shape: SpineShape): FiggiePose {
     const lean = quatFromAxisAngle(0, 0, 1, -part(SPINE_RANGE.lean, shape.lean));
     const bend = quatFromAxisAngle(1, 0, 0, part(SPINE_RANGE.bend, shape.bend));
     const twist = quatFromAxisAngle(0, 1, 0, part(SPINE_RANGE.twist, shape.twist));
-    const q: Quat = quatNormalize(quatMul(twist, quatMul(bend, lean)));
+    const shaped: Quat = quatNormalize(quatMul(twist, quatMul(bend, lean)));
+    const held = pose.angles[id];
+    // `held · shaped`: what the joint already carries turns first, then the
+    // sliders turn it further about the axes it now points along.
+    const q = held ? quatNormalize(quatMul(held, shaped)) : shaped;
     if (Math.abs(q[3]) >= 1 - 1e-9) delete angles[id];
     else angles[id] = q;
   }
