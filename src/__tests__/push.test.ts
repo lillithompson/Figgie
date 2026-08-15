@@ -66,20 +66,22 @@ describe('one dab', () => {
     expect(after.root.y).toBeCloseTo(before.root.y, 6);
   });
 
-  it('tapers between the two: a joint halfway out moves less than the centre', () => {
+  it('tapers UPSTREAM: a parent halfway out moves less than the joint at the centre', () => {
+    // The taper shapes the transition out of the still body — the shoulder
+    // near the rim bending the upper arm smoothly where the elbow at the
+    // middle travels the whole way.
     const rest = defaultPose();
     const w = solveWorld(rest);
-    // Brush centred on the elbow, wide enough that the wrist is inside it.
-    const span = Math.hypot(w.wristL.x - w.elbowL.x, w.wristL.y - w.elbowL.y);
+    const span = Math.hypot(w.shoulderL.x - w.elbowL.x, w.shoulderL.y - w.elbowL.y);
     const at = shown(rest, 'elbowL');
     const pushed = pushPose(rest, 0, at.px, at.py, 0, 4, span * 2);
     const after = solveWorld(pushed);
     const elbow = after.elbowL.y - w.elbowL.y;
-    const wrist = after.wristL.y - w.wristL.y;
+    const shoulder = after.shoulderL.y - w.shoulderL.y;
     expect(elbow).toBeCloseTo(4, 6);
-    expect(wrist).toBeGreaterThan(0);
-    expect(wrist).toBeLessThan(elbow);
-    expect(wrist).toBeCloseTo(4 * pushFalloff(span / (span * 2)), 6);
+    expect(shoulder).toBeGreaterThan(0);
+    expect(shoulder).toBeLessThan(elbow);
+    expect(shoulder).toBeCloseTo(4 * pushFalloff(span / (span * 2)), 6);
   });
 
   it('never moves the root — the anchor the view pivots on', () => {
@@ -108,6 +110,60 @@ describe('one dab', () => {
     expect(pushPose(rest, 0, 0, 0, 0, 0, 8)).toBe(rest);
     expect(pushPose(rest, 0, 400, 400, 3, 3, 8)).toBe(rest); // miles off the figure
     expect(pushPose(rest, 0, 0, 0, 3, 3, 0)).toBe(rest); // no brush at all
+  });
+});
+
+describe('nothing is left behind', () => {
+  it('what hangs off a shoved joint comes with it, whole', () => {
+    // Brush on the knee: the thigh LENGTHENS (the hip barely moves) while
+    // the shin and the whole foot ride down rigidly. Without the parent's
+    // share as a floor, the foot would lag behind the ankle that carries
+    // it — and the flesh hung on those joints has nothing else to follow.
+    const rest = defaultPose();
+    const w = solveWorld(rest);
+    const at = shown(rest, 'kneeL');
+    const pushed = pushPose(rest, 0, at.px, at.py, 0, -6, 8);
+    const after = solveWorld(pushed);
+    expect(after.kneeL.y - w.kneeL.y).toBeCloseTo(-6, 6);
+    for (const id of ['ankleL', 'heelL', 'ballL', 'toeL'] as const) {
+      expect(after[id].y - w[id].y).toBeCloseTo(-6, 6);
+    }
+    // …and the thigh is longer for it, hip left where it was.
+    expect(after.hipL.y).toBeCloseTo(w.hipL.y, 6);
+    expect(after.kneeL.y - after.hipL.y).toBeLessThan(w.kneeL.y - w.hipL.y);
+  });
+
+  it('a hand goes with its wrist, fingers and all', () => {
+    const rest = defaultPose();
+    const w = solveWorld(rest);
+    const at = shown(rest, 'wristL');
+    const after = solveWorld(pushPose(rest, 0, at.px, at.py, -5, 0, 3));
+    for (const id of ['wristL', 'palmL', 'knuckL', 'middleL3', 'thumbL2'] as const) {
+      expect(after[id].x - w[id].x).toBeCloseTo(-5, 6);
+    }
+  });
+
+  it('is continuous at the rim — riding the parent is what weight zero means', () => {
+    // A joint just inside the circle and one just outside it must move
+    // alike, or the figure would tear along the brush's own edge.
+    const rest = defaultPose();
+    const w = solveWorld(rest);
+    const at = shown(rest, 'elbowL');
+    const span = Math.hypot(w.wristL.x - w.elbowL.x, w.wristL.y - w.elbowL.y);
+    const inside = solveWorld(pushPose(rest, 0, at.px, at.py, 0, 3, span * 1.001));
+    const outside = solveWorld(pushPose(rest, 0, at.px, at.py, 0, 3, span * 0.999));
+    expect(inside.wristL.y - w.wristL.y).toBeCloseTo(outside.wristL.y - w.wristL.y, 6);
+  });
+
+  it('the root still takes nothing, and hands nothing down', () => {
+    // A brush grazing the pelvis must not drag the whole figure by way of
+    // the root — every joint moves on its own falloff there.
+    const rest = defaultPose();
+    const w = solveWorld(rest);
+    const at = shown(rest, 'root');
+    const after = solveWorld(pushPose(rest, 0, at.px, at.py, 4, 0, 12));
+    expect(after.root.x).toBeCloseTo(w.root.x, 12);
+    expect(after.head.x - w.head.x).toBeLessThan(4 - 1e-6); // tapered, not carried
   });
 });
 

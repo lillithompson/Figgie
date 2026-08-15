@@ -374,12 +374,25 @@ const CHEST_BINDS: ReadonlyArray<BoundVert> = [
   ['chest', -6.0, -10.5, 3.0], ['chest', 6.0, -10.5, 3.0],
   ['chest', -6.0, -10.5, -3.0], ['chest', 6.0, -10.5, -3.0],
 ];
-/** Pelvis VOLUME in the root's frame — the drawn bowl the legs hang from,
- *  a shield with depth (wider rim, narrowing toward its point). */
-const PELVIS_VOL: ReadonlyArray<[number, number, number]> = [
-  [-6.8, 0.8, 3.0], [-6.8, 0.8, -3.0], [0, 1.5, 3.2], [0, 1.5, -3.2],
-  [6.8, 0.8, 3.0], [6.8, 0.8, -3.0], [4.4, -4.8, 2.2], [4.4, -4.8, -2.2],
-  [0, -7.6, 1.6], [0, -7.6, -1.6], [-4.4, -4.8, 2.2], [-4.4, -4.8, -2.2],
+/** Pelvis VOLUME — the drawn bowl the legs hang from, a shield with depth
+ *  (wider rim, narrowing toward its point), authored in the ROOT's frame.
+ *
+ *  Each SIDE of the shield is carried by the hip on that side, the middle
+ *  by the root. At rest and under every pose that is the same shield: the
+ *  hips are rigid corners of the pelvis (SKELETON, `posable: false`), so
+ *  their frame and the root's differ by a fixed translation and the
+ *  skinning is exactly a change of coordinates. It matters under the PUSH
+ *  brush, which is the one thing that can move a hip on its own: the flesh
+ *  round the leg goes down with the leg, so a lengthened leg still comes
+ *  out of a hip instead of hanging below a shield nailed to the root the
+ *  brush deliberately never moves. */
+const PELVIS_BINDS: ReadonlyArray<BoundVert> = [
+  ['root', -6.8, 0.8, 3.0, 'hipL', 1], ['root', -6.8, 0.8, -3.0, 'hipL', 1],
+  ['root', 0, 1.5, 3.2], ['root', 0, 1.5, -3.2],
+  ['root', 6.8, 0.8, 3.0, 'hipR', 1], ['root', 6.8, 0.8, -3.0, 'hipR', 1],
+  ['root', 4.4, -4.8, 2.2, 'hipR', 1], ['root', 4.4, -4.8, -2.2, 'hipR', 1],
+  ['root', 0, -7.6, 1.6], ['root', 0, -7.6, -1.6],
+  ['root', -4.4, -4.8, 2.2, 'hipL', 1], ['root', -4.4, -4.8, -2.2, 'hipL', 1],
 ];
 /** The palm: ONE solid, skinned — the chest's arrangement at hand scale.
  *  LEFT-authored (x mirrors for the right, and the joint names take the
@@ -606,7 +619,7 @@ function massSilhouettes(
   ): BoundVert[] => volume.map(([x, y, z]): BoundVert => [joint, x, y, z]);
   return [
     make('chest', CHEST_BINDS),
-    make('pelvis', box('root', PELVIS_VOL)),
+    make('pelvis', PELVIS_BINDS),
     // One skinned solid per hand: the palm bends at its pin rather than
     // coming apart into an inner and an outer plate.
     make('handL', palmBinds('L'), HAND_W),

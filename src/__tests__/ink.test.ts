@@ -8,6 +8,7 @@
 
 import { buildInkDraw, inkBatch, inkVector, sketchFills, sketchInk } from '../ink';
 import { FiggiePose, defaultPose, resolveDrag, solveWorld } from '../pose';
+import { pushPose } from '../push';
 import { quatFromAxisAngle } from '../quat';
 import { dragTargetFor } from '../skeleton';
 import { projectYaw } from '../view';
@@ -291,6 +292,63 @@ describe('the drawing follows the pose and the turn', () => {
           for (const t of turns(pts)) expect(t).toBeLessThan(0);
         }
       }
+    });
+  });
+
+  describe('the pelvis shield is skinned to the hips', () => {
+    const w0 = solveWorld(defaultPose());
+    /** The pelvis hull, in the root's own coordinates. */
+    const shield = (pose: FiggiePose) => sketchFills(pose, 0)
+      .find((f) => f.id === 'pelvis')!.points
+      .map((p) => ({ x: p.x - w0.root.x, y: p.y - w0.root.y }));
+    /** Whether a point is inside the (convex, counter-clockwise) hull. */
+    const inside = (hull: Array<{ x: number; y: number }>, p: { x: number; y: number }) =>
+      hull.every((a, i) => {
+        const b = hull[(i + 1) % hull.length];
+        return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x) >= -1e-9;
+      });
+    /** Shove the left leg down by `d` with the brush over the HIP — the
+     *  case that used to tear, since the hip is where the leg meets the
+     *  shield. Tight enough to leave the other hip alone. */
+    const legDown = (d: number) => {
+      const at = projectYaw(w0.hipL.x, w0.hipL.y, w0.hipL.z, 0, w0.root.x);
+      return pushPose(defaultPose(), 0, at.px, at.py, 0, -d, 9);
+    };
+
+    it('draws exactly the same shield at rest — the hips are rigid corners', () => {
+      // hipL/hipR are fixed corners of the pelvis (`posable: false`), so
+      // binding half the shield to them is a change of coordinates and
+      // nothing else. Nothing about the figure as drawn may move.
+      const rest = shield(defaultPose());
+      expect(rest.length).toBeGreaterThanOrEqual(5);
+      for (const p of rest) expect(Math.abs(p.y - Math.round(p.y * 1e6) / 1e6)).toBeLessThan(1e-6);
+      // Symmetric about the centre line, as a shield on one joint was.
+      const xs = rest.map((p) => p.x).sort((a, b) => a - b);
+      expect(xs[0]).toBeCloseTo(-xs[xs.length - 1], 6);
+    });
+
+    it('goes down with a pushed leg, so the thigh never leaves it', () => {
+      // The bug this exists for: the push brush is the one thing that can
+      // move a hip on its own, and a shield nailed to the root stayed put
+      // while the leg walked out of it.
+      const pushed = legDown(9);
+      const hull = shield(pushed);
+      const w = solveWorld(pushed);
+      const hip = { x: w.hipL.x - w0.root.x, y: w.hipL.y - w0.root.y };
+      expect(w.hipL.y).toBeLessThan(w0.hipL.y - 1); // the hip really moved
+      // The left half followed it down…
+      const left = hull.filter((p) => p.x < -1).map((p) => p.y);
+      expect(Math.min(...left)).toBeLessThan(-4.8 - 5);
+      // …the right half did not…
+      const right = hull.filter((p) => p.x > 1).map((p) => p.y);
+      expect(Math.min(...right)).toBeCloseTo(-4.8, 6);
+      // …and the hip sits just as deep inside the flesh as it did at rest,
+      // which is what "still attached" means here.
+      const restHull = shield(defaultPose());
+      const restHip = { x: w0.hipL.x - w0.root.x, y: w0.hipL.y - w0.root.y };
+      expect(inside(hull, { x: hip.x + 1, y: hip.y }))
+        .toBe(inside(restHull, { x: restHip.x + 1, y: restHip.y }));
+      expect(inside(hull, hip)).toBe(inside(restHull, restHip));
     });
   });
 
