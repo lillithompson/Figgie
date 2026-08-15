@@ -229,6 +229,12 @@ export function restJoint(id: JointId): RestJoint {
   return BY_ID.get(id)!;
 }
 
+/** The rest joint with this id, or undefined — the lookup a PARSER wants
+ *  (everywhere else already holds a JointId, so restJoint asserts). */
+export function findJoint(id: string): RestJoint | undefined {
+  return BY_ID.get(id as JointId);
+}
+
 /**
  * The joints a finger can grab, and what a drag does — Pivot Animator's
  * model (drag a joint, the bone ending at it rotates about its parent and

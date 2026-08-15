@@ -17,6 +17,7 @@ export {
   solveWorld, viewAxis,
 } from './pose';
 export type { FiggiePose, WorldJoints } from './pose';
+export { PUSH_FALLOFF_K, pushFalloff, pushPose } from './push';
 export {
   QUAT_IDENTITY, quatEquals, quatFromAxisAngle, quatMul, quatNormalize, quatRotate,
 } from './quat';

@@ -19,8 +19,8 @@
 // about z) load losslessly: a number is the same rotation written smaller.
 
 import {
-  DragTarget, JOINT_IDS, JointId, MAX_REACH, SKELETON, RIG_HEIGHT, dragTargetFor, jointBound,
-  restJoint,
+  DragTarget, JOINT_IDS, JointId, MAX_REACH, SKELETON, RIG_HEIGHT, dragTargetFor, findJoint,
+  jointBound, restJoint,
 } from './skeleton';
 import {
   Quat, QUAT_IDENTITY, quatEquals, quatFromAxisAngle, quatInv, quatIsIdentity,
@@ -39,6 +39,31 @@ export interface FiggiePose {
    *  the bone ends at. Missing = identity. Only posable joints are
    *  meaningful. */
   angles: Partial<Record<JointId, Quat>>;
+  /**
+   * Per-joint DISPLACEMENTS — what makes the rig deformable rather than
+   * merely posable (see `push.ts`). Rotations can only swing a bone about
+   * its parent; an offset moves the joint itself, so a limb can be
+   * lengthened, a shoulder dropped, a whole silhouette smeared.
+   *
+   * Two rules make them predictable under a brush:
+   *
+   *  - NOT INHERITED. An offset moves the joint it is written on and
+   *    nothing else — children hang off the undisplaced FK position, so
+   *    the bones between a moved joint and its still neighbours simply
+   *    stretch. A brush's falloff therefore IS the deformation: a joint at
+   *    the rim of the circle, weight 0, does not move because its parent
+   *    did. (Inheriting would compound down a chain and fling an arm off
+   *    the stage.)
+   *  - Written in the joint's OWN posed frame (`WorldJoint.rot`) — the
+   *    frame its bone offset and its blob already ride — so a deformation
+   *    sticks to the limb: push a hand out, then swing the forearm, and
+   *    the displacement swings with it instead of pointing off in a
+   *    direction the pose has left behind.
+   *
+   * Missing (the usual case, and every pose ever saved before this) = no
+   * displacement anywhere.
+   */
+  offsets?: Partial<Record<JointId, [number, number, number]>>;
 }
 
 /** The rest (T) pose. */
@@ -109,26 +134,47 @@ export type WorldJoints = Record<JointId, WorldJoint>;
  * One forward walk — SKELETON lists parents before children. Bones posed
  * out of the rig plane carry real z, which is what makes the yawed views
  * read as a figure and not a cutout.
+ *
+ * A pose carrying {@link FiggiePose.offsets} walks the chain down the
+ * UNDISPLACED positions and adds each joint's own offset only as it emits
+ * it — the not-inherited rule the offsets are defined by. The extra
+ * bookkeeping is allocated only when there is a displacement to track, so
+ * an ordinary pose solves exactly as it always did.
  */
 export function solveWorld(pose: FiggiePose): WorldJoints {
   const out = {} as WorldJoints;
+  const offsets = pose.offsets;
+  const base = offsets ? ({} as Record<JointId, [number, number, number]>) : null;
   for (const j of SKELETON) {
+    let bx: number;
+    let by: number;
+    let bz: number;
+    let rot: Quat;
     if (!j.parent) {
       // The root's own rotation turns the whole figure: it is the frame
       // every other bone composes onto (rotateRig writes it).
-      out[j.id] = {
-        x: j.dx + pose.rootX,
-        y: j.dy + pose.rootY,
-        z: j.dz,
-        rot: pose.angles[j.id] ?? QUAT_IDENTITY,
-      };
-      continue;
+      rot = pose.angles[j.id] ?? QUAT_IDENTITY;
+      bx = j.dx + pose.rootX;
+      by = j.dy + pose.rootY;
+      bz = j.dz;
+    } else {
+      const parent = out[j.parent];
+      const local = j.posable ? pose.angles[j.id] : undefined;
+      rot = local ? quatMul(parent.rot, local) : parent.rot;
+      const [ox, oy, oz] = quatRotate(rot, j.dx, j.dy, j.dz);
+      const p = base ? base[j.parent] : null;
+      bx = (p ? p[0] : parent.x) + ox;
+      by = (p ? p[1] : parent.y) + oy;
+      bz = (p ? p[2] : parent.z) + oz;
     }
-    const p = out[j.parent];
-    const local = j.posable ? pose.angles[j.id] : undefined;
-    const rot = local ? quatMul(p.rot, local) : p.rot;
-    const [ox, oy, oz] = quatRotate(rot, j.dx, j.dy, j.dz);
-    out[j.id] = { x: p.x + ox, y: p.y + oy, z: p.z + oz, rot };
+    if (base) base[j.id] = [bx, by, bz];
+    const off = offsets?.[j.id];
+    if (off) {
+      const [dx, dy, dz] = quatRotate(rot, off[0], off[1], off[2]);
+      out[j.id] = { x: bx + dx, y: by + dy, z: bz + dz, rot };
+    } else {
+      out[j.id] = { x: bx, y: by, z: bz, rot };
+    }
   }
   return out;
 }
@@ -342,13 +388,39 @@ export function sanitizePose(raw: unknown): FiggiePose {
   }
   if (typeof r.angles === 'object' && r.angles !== null) {
     for (const [key, value] of Object.entries(r.angles as Record<string, unknown>)) {
-      const joint = SKELETON.find((j) => j.id === key);
+      const joint = findJoint(key);
       if (!joint || !joint.posable) continue;
       const quat = coerceRotation(value);
       if (quat && !quatIsIdentity(quat)) pose.angles[joint.id] = quat;
     }
   }
+  // Displacements: any joint may carry one (a fingertip is as pushable as
+  // an elbow — being displaced is not being posed), each component clamped
+  // like the root's own offset so no stored number can put a joint a whole
+  // stage away. Absent, or all-zero, leaves the field off entirely.
+  if (typeof r.offsets === 'object' && r.offsets !== null) {
+    const offsets: Partial<Record<JointId, [number, number, number]>> = {};
+    let any = false;
+    for (const [key, value] of Object.entries(r.offsets as Record<string, unknown>)) {
+      const joint = findJoint(key);
+      if (!joint) continue;
+      const off = coerceOffset(value);
+      if (!off) continue;
+      offsets[joint.id] = off;
+      any = true;
+    }
+    if (any) pose.offsets = offsets;
+  }
   return pose;
+}
+
+function coerceOffset(value: unknown): [number, number, number] | null {
+  if (!Array.isArray(value) || value.length !== 3) return null;
+  const c = value.map((v) => (typeof v === 'number' && Number.isFinite(v)
+    ? clamp(v, -ROOT_PARSE_LIMIT, ROOT_PARSE_LIMIT)
+    : 0));
+  if (!(Math.hypot(c[0], c[1], c[2]) > 1e-6)) return null;
+  return [c[0], c[1], c[2]];
 }
 
 function coerceRotation(value: unknown): Quat | null {
@@ -371,6 +443,11 @@ function coerceRotation(value: unknown): Quat | null {
 export function poseEquals(a: FiggiePose, b: FiggiePose, eps = 1e-3): boolean {
   if (Math.abs(a.rootX - b.rootX) > eps || Math.abs(a.rootY - b.rootY) > eps) return false;
   for (const j of SKELETON) {
+    // Every joint is compared for DISPLACEMENT (a pushed fingertip is a
+    // changed figure), only posable ones for rotation.
+    const oa = a.offsets?.[j.id] ?? ZERO_OFFSET;
+    const ob = b.offsets?.[j.id] ?? ZERO_OFFSET;
+    if (Math.hypot(oa[0] - ob[0], oa[1] - ob[1], oa[2] - ob[2]) > eps) return false;
     if (!j.posable) continue;
     const qa = a.angles[j.id] ?? QUAT_IDENTITY;
     const qb = b.angles[j.id] ?? QUAT_IDENTITY;
@@ -378,5 +455,7 @@ export function poseEquals(a: FiggiePose, b: FiggiePose, eps = 1e-3): boolean {
   }
   return true;
 }
+
+const ZERO_OFFSET: readonly [number, number, number] = [0, 0, 0];
 
 export { dragTargetFor, RIG_HEIGHT };
