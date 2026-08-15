@@ -58,9 +58,14 @@ export const FINGER_COLUMN: ReadonlyArray<[1 | 2 | 3, number]> = [
   [1, 0.36], [2, 0.34], [3, 0.3],
 ];
 
-/** Fully-pointed foot: the ankle extends the foot in line with the shin,
- *  the toe box carrying a little further. */
-const POINT_BALL = 0.95;
+/** Fully-pointed foot: the ankle extends the foot well down toward the
+ *  shin's line, the toe box carrying a little further. The first number
+ *  swings the HEEL — the bone that hangs off the ankle — so the whole foot
+ *  pitches about the ankle, exactly as pointing a real foot does: the sole
+ *  swings from flat to steep and the heel rides back and up, the shape of
+ *  standing on tiptoe. Stopping short of the shin's own line is deliberate;
+ *  a foot folded flat against the shin reads as broken, not as pointed. */
+const POINT_ANKLE = 0.95;
 const POINT_TOE = 0.34;
 
 function clamp01(v: number): number {
@@ -124,13 +129,16 @@ function footAxis(side: Side): [number, number, number] {
 /**
  * Flex one foot: `t` 0 = toes fully pointed (the foot extends in line with
  * the shin), 1 = flat (the sole level, the rest pose). Writes only that
- * foot's ball and toe joints.
+ * foot's heel and toe joints — the heel pitches the whole foot about the
+ * ankle, the toe curls the tip a little further; the BALL is left alone, so
+ * a foot the player has bent at the ball keeps that bend while this slider
+ * points it.
  */
 export function flexFoot(pose: FiggiePose, side: Side, t: number): FiggiePose {
   const point = 1 - clamp01(t); // 1 = fully pointed
   const axis = footAxis(side);
   const angles: Angles = { ...pose.angles };
-  setAngle(angles, `ball${side}` as JointId, axis, POINT_BALL * point);
+  setAngle(angles, `heel${side}` as JointId, axis, POINT_ANKLE * point);
   setAngle(angles, `toe${side}` as JointId, axis, POINT_TOE * point);
   return { ...pose, angles };
 }

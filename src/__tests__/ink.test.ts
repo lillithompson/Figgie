@@ -348,6 +348,34 @@ describe('the batch and the accent', () => {
     }
   });
 
+  it('buries the foot’s own joints IN its boxes, not on top of them', () => {
+    // The other half of the same rule: the ankle is a joint and reads as
+    // one, but heel, ball and toe are the foot's INSIDES. The L drops them
+    // into the flesh, so each sits between its box's top and bottom faces
+    // rather than perched on the top edge the way the old chain did.
+    const fills = sketchFills(defaultPose(), 0);
+    const w = solveWorld(defaultPose());
+    const box = (id: string) => {
+      const ys = fills.find((f) => f.id === id)!.points.map((p) => p.y);
+      return { top: Math.max(...ys), bottom: Math.min(...ys) };
+    };
+    for (const s of ['L', 'R'] as const) {
+      const body = box(`foot${s}`);
+      const toeBox = box(`toe${s}`);
+      for (const [joint, b] of [
+        [`heel${s}`, body], [`ball${s}`, body], [`toe${s}`, toeBox],
+      ] as const) {
+        expect(w[joint].y).toBeLessThan(b.top - 0.5);
+        expect(w[joint].y).toBeGreaterThan(b.bottom + 0.5);
+      }
+      // And the L's upright joins the two: a drawn bone from the ankle down
+      // into the foot, so the ankle circle never floats free of it.
+      const shin = sketchInk(defaultPose(), 0).find((st) => st.id === `heel${s}`)!.points;
+      expect(shin[0].y).toBeCloseTo(w[`ankle${s}`].y, 2);
+      expect(shin[shin.length - 1].y).toBeCloseTo(w[`heel${s}`].y, 2);
+    }
+  });
+
   it('the hand draws with a lighter pen — the palm at half the body’s weight', () => {
     const strokes = sketchInk(defaultPose(), 0);
     const maxW = (id: string) =>

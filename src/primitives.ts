@@ -70,10 +70,11 @@ export function posePrimitives(
     });
   }
   for (const t of DRAG_TARGETS) {
-    // Fine targets (fingertips, the ball of the foot) draw no knob: five
-    // wooden beads per hand would clutter every view for joints only
-    // grabbable zoomed in, and a ball bead would sit inside the ankle's —
-    // the finger and the foot themselves are the affordance there.
+    // Fine targets (fingertips, the heel and ball of the foot) draw no
+    // knob: five wooden beads per hand would clutter every view for joints
+    // only grabbable zoomed in, and beads inside the foot would only crowd
+    // the ankle's — the finger and the foot themselves are the affordance
+    // there.
     if (t.fine) continue;
     const j = world[t.joint];
     out.push({ kind: 'knob', joint: t.joint, cx: j.x, cy: j.y, cz: j.z, radius: knobRadius(t.joint) });

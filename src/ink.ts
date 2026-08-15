@@ -405,19 +405,26 @@ const HAND_W = SHAPE_W * 0.5;
 const FINGER_W = 0.35;
 /** Foot VOLUMES, tapered rectangular solids in the foot chain's splayed
  *  rest frames: the BODY spans heel to ball (anchored at the ball joint,
- *  so posing the foot pitches it about the ankle) and the TOE box spans
- *  ball to tip (anchored at the toe joint — the skinning that lets the
- *  foot bend at the ball). Corners are authored in the unsplayed frame
- *  (x across, y up, z forward) and splay-rotated once at module init. */
+ *  so a swing at the heel pitches it about the ankle and a swing at the
+ *  ball lifts it off the heel) and the TOE box spans ball to tip (anchored
+ *  at the toe joint — the skinning that lets the foot bend at the ball).
+ *  Corners are authored in the unsplayed frame (x across, y up, z forward)
+ *  and splay-rotated once at module init.
+ *
+ *  Both boxes STRADDLE the joint they hang off: the L drops the foot's
+ *  bones down into the flesh, so the ball sits well inside the body's face
+ *  rather than perched on its top edge, where it used to. The boxes
+ *  themselves have not moved a hair — the same drawn foot, re-hung on the
+ *  joints' new places, so the sketch still lands where the classic bake
+ *  does. What connects the ankle down to all this is the heel stroke, the
+ *  L's upright. */
 const FOOT_BODY_RAW: ReadonlyArray<[number, number, number]> = [
-  // Top face sits BELOW the ankle's drawn circle — the joint floats above
-  // the volume, connected by the shin stroke, never buried in the box.
-  [-2.34, -0.66, 0], [2.34, -0.66, 0], [-2.34, -3.6, 0], [2.34, -3.6, 0],
-  [-1.68, -0.66, -8.04], [1.68, -0.66, -8.04], [-1.68, -3.6, -8.04], [1.68, -3.6, -8.04],
+  [-2.34, 1.94, 0], [2.34, 1.94, 0], [-2.34, -1.0, 0], [2.34, -1.0, 0],
+  [-1.68, 1.94, -8.04], [1.68, 1.94, -8.04], [-1.68, -1.0, -8.04], [1.68, -1.0, -8.04],
 ];
 const TOE_BOX_RAW: ReadonlyArray<[number, number, number]> = [
-  [-1.92, -0.24, 1.08], [1.92, -0.24, 1.08], [-1.92, -3.0, 1.08], [1.92, -3.0, 1.08],
-  [-2.34, 0.17, -4.68], [2.34, 0.17, -4.68], [-2.34, -2.77, -4.68], [2.34, -2.77, -4.68],
+  [-1.92, 1.71, 1.08], [1.92, 1.71, 1.08], [-1.92, -1.05, 1.08], [1.92, -1.05, 1.08],
+  [-2.34, 2.12, -4.68], [2.34, 2.12, -4.68], [-2.34, -0.82, -4.68], [2.34, -0.82, -4.68],
 ];
 
 function splayVolume(
@@ -558,9 +565,10 @@ function massSilhouettes(
     // coming apart into an inner and an outer plate.
     make('handL', palmBinds('L'), HAND_W),
     make('handR', palmBinds('R'), HAND_W),
-    // Foot body rides the ball joint (posing the foot pitches it about
-    // the ankle); the toe box rides the toe joint, so a toe drag bends
-    // the foot at the ball — solid follows bone, drawn skinning.
+    // Foot body rides the ball joint (a heel swing pitches it about the
+    // ankle, a ball swing lifts it off the heel); the toe box rides the
+    // toe joint, so a toe drag bends the foot at the ball — solid follows
+    // bone, drawn skinning.
     make('footL', box('ballL', FOOT_BODY_L)),
     make('footR', box('ballR', FOOT_BODY_R)),
     make('toeL', box('toeL', TOE_BOX_L)),
@@ -620,6 +628,11 @@ export function sketchInk(
   line('legL1', J('kneeL'), J('ankleL'), LIMB_W);
   line('legR0', J('hipR'), J('kneeR'), LIMB_W);
   line('legR1', J('kneeR'), J('ankleR'), LIMB_W);
+  // The L's upright: the short drop from the ankle into the heel, which is
+  // what carries the drawn leg down into the foot box instead of leaving
+  // the ankle circle hovering over it.
+  line('heelL', J('ankleL'), J('heelL'), LIMB_W);
+  line('heelR', J('ankleR'), J('heelR'), LIMB_W);
 
   // The two closed body masses, each drawn as its VIEW-dependent
   // silhouette — the projected hull of the volume — so a turned chest

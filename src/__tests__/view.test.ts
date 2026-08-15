@@ -182,39 +182,43 @@ describe('hitTest', () => {
     expect(hitTest(defaultPose(), 0, fit, tip.x, tip.y, true)?.target.joint).toBe('middleL3');
   });
 
-  it('grabs ankle, ball and toe one from another once the gate opens', () => {
-    // The foot's three joints, each pressed dead on: with the gate open
-    // every one answers for itself — the middle of the foot is grabbable,
-    // and grabbing it does not disturb the other two.
+  it('grabs every corner of the L one from another once the gate opens', () => {
+    // The foot's four joints, each pressed dead on: with the gate open
+    // every one answers for itself — the two inside the foot are grabbable,
+    // and grabbing one does not disturb the rest.
     const pose = defaultPose();
-    for (const joint of ['ankleL', 'ballL', 'toeL'] as const) {
+    for (const joint of ['ankleL', 'heelL', 'ballL', 'toeL'] as const) {
       const s = screenOf(joint);
       expect(hitTest(pose, 0, fit, s.x, s.y, true)?.target.joint).toBe(joint);
     }
     // And each does its own thing: the ankle carries the leg (IK up the
-    // chain), the ball swings the whole foot about the ankle, the toe
-    // bends the foot in two.
+    // chain), the heel pitches the whole foot about the ankle, the ball
+    // lifts the foot's front off the heel, the toe bends the foot in two.
     expect(dragTargetFor('ankleL')!.kind).toBe('ik2');
+    expect(dragTargetFor('heelL')!.kind).toBe('fk');
     expect(dragTargetFor('ballL')!.kind).toBe('fk');
     expect(dragTargetFor('toeL')!.kind).toBe('ik2');
   });
 
-  it('keeps the ball behind the gate — face-on it hides inside the ankle', () => {
-    // The foot points at the viewer, so the three project ~2.5 rig units
-    // apart — well inside the ankle's own knob. Offering the middle one at
-    // that size would just steal presses; without the gate a press there
+  it('keeps the foot’s inner joints behind the gate', () => {
+    // The foot points at the viewer, so its four joints project only a few
+    // rig units apart — inside each other's knobs. Offering the middle two
+    // at that size would just steal presses; without the gate a press there
     // still means one of the two ENDS of the foot.
-    const ball = screenOf('ballL');
-    const joint = hitTest(defaultPose(), 0, fit, ball.x, ball.y)?.target.joint;
-    expect(joint).not.toBe('ballL');
-    expect(['ankleL', 'toeL']).toContain(joint);
+    for (const inner of ['heelL', 'ballL'] as const) {
+      const s = screenOf(inner);
+      const joint = hitTest(defaultPose(), 0, fit, s.x, s.y)?.target.joint;
+      expect(joint).not.toBe(inner);
+      expect(['ankleL', 'toeL']).toContain(joint);
+    }
   });
 
-  it('draws no knob for the ball, as for the fingers', () => {
+  it('draws no knob inside the foot, as for the fingers', () => {
     const knobs = posePrimitives(defaultPose()).filter((p) => p.kind === 'knob');
     const joints = knobs.map((k) => (k as { joint: string }).joint);
     expect(joints).toContain('ankleL');
     expect(joints).toContain('toeL');
+    expect(joints).not.toContain('heelL');
     expect(joints).not.toContain('ballL');
   });
 

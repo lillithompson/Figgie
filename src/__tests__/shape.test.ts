@@ -113,7 +113,30 @@ describe('flexFoot', () => {
   it('is absolute, and touches ONE foot', () => {
     const once = flexFoot(defaultPose(), 'R', 0.3);
     expect(poseEquals(flexFoot(flexFoot(defaultPose(), 'R', 1), 'R', 0.3), once)).toBe(true);
-    expect(Object.keys(once.angles).sort()).toEqual(['ballR', 'toeR']);
+    expect(Object.keys(once.angles).sort()).toEqual(['heelR', 'toeR']);
+  });
+
+  it('pitches the whole foot about the ankle, leaving the ball alone', () => {
+    // The slider swings the L's upright, so the sole tips as one piece and
+    // the heel rides back and up — standing on tiptoe. The ball is the
+    // player's to bend; pointing the foot must not overwrite it.
+    const w0 = solveWorld(defaultPose());
+    const w = solveWorld(flexFoot(defaultPose(), 'L', 0));
+    expect(w.heelL.y).toBeGreaterThan(w0.heelL.y + 1);
+    expect(w.heelL.z).toBeLessThan(w0.heelL.z);
+    // Sole flat at rest, steep when pointed — measured heel to toe.
+    const pitch = (s: typeof w0) => Math.atan2(
+      s.heelL.y - s.toeL.y,
+      Math.hypot(s.toeL.x - s.heelL.x, s.toeL.z - s.heelL.z),
+    );
+    expect(Math.abs(pitch(w0))).toBeLessThan(0.1);
+    expect(pitch(w)).toBeGreaterThan(0.8);
+    // …and the foot keeps its own length through the pitch: a rotation,
+    // never a stretch.
+    const span = (s: typeof w0) => Math.hypot(
+      s.ballL.x - s.heelL.x, s.ballL.y - s.heelL.y, s.ballL.z - s.heelL.z,
+    );
+    expect(span(w)).toBeCloseTo(span(w0), 6);
   });
 });
 

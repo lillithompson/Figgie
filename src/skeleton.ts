@@ -37,6 +37,7 @@ export type JointId =
   | 'hipL' | 'hipR'           // pelvis corners (rigid — the pelvis is one piece)
   | 'kneeL' | 'kneeR'
   | 'ankleL' | 'ankleR'
+  | 'heelL' | 'heelR'         // heel — the foot's corner, under and behind the ankle
   | 'ballL' | 'ballR'         // ball of the foot — the hinge the toe bends at
   | 'toeL' | 'toeR'           // toe tip — the foot chain's end effector
   | PalmJointId
@@ -69,7 +70,8 @@ export const HAND_SPAN = 11.3;
 export const FOOT_SPLAY = 0.5;
 
 /** One step of `len` along the splayed foot direction (side −1 = left,
- *  splaying −x), dropping `dy`. */
+ *  splaying −x), dropping `dy`. A NEGATIVE `len` steps backward along the
+ *  same line — which is how the heel gets behind the ankle. */
 function footStep(side: -1 | 1, len: number, dy: number) {
   return {
     dx: side * Math.sin(FOOT_SPLAY) * len,
@@ -198,14 +200,24 @@ export const SKELETON: readonly RestJoint[] = [
   { id: 'kneeR', parent: 'hipR', dx: 0, dy: -23, dz: 0, posable: true },
   { id: 'ankleL', parent: 'kneeL', dx: 0, dy: -23, dz: 0, posable: true },
   { id: 'ankleR', parent: 'kneeR', dx: 0, dy: -23, dz: 0, posable: true },
-  // The FEET: ankle → ball → toe, the one chain that leaves the rig plane
-  // (a foot points at the viewer; the stance splay swings it far enough
-  // off-axis to stay poseable head-on). The ball is the hinge the toe box
-  // bends at; the toe is the chain's draggable end effector.
-  { id: 'ballL', parent: 'ankleL', ...footStep(-1, 4.9, -1.1) },
-  { id: 'toeL', parent: 'ballL', ...footStep(-1, 4.7, -0.85) },
-  { id: 'ballR', parent: 'ankleR', ...footStep(1, 4.9, -1.1) },
-  { id: 'toeR', parent: 'ballR', ...footStep(1, 4.7, -0.85) },
+  // The FEET: ankle → heel → ball → toe, an L. The shin comes down to the
+  // ankle and the first bone drops STRAIGHT ON DOWN to the heel, a little
+  // behind it — the L's upright — and only then does the foot run forward,
+  // heel to ball to toe, along the floor: the L's foot.
+  //
+  // Shaping it that way puts every foot joint down IN the foot rather than
+  // perched on top of it, and gives each bone one honest job. Swinging the
+  // HEEL pitches the whole foot about the ankle (point the toe); swinging
+  // the BALL lifts the front of the foot off the heel; swinging the TOE
+  // bends the toe box. It is also the one chain that leaves the rig plane
+  // — a foot points at the viewer, and the stance splay swings it far
+  // enough off-axis to stay poseable head-on.
+  { id: 'heelL', parent: 'ankleL', ...footStep(-1, -2.0, -3.4) },
+  { id: 'ballL', parent: 'heelL', ...footStep(-1, 6.9, -0.3) },
+  { id: 'toeL', parent: 'ballL', ...footStep(-1, 4.7, -0.2) },
+  { id: 'heelR', parent: 'ankleR', ...footStep(1, -2.0, -3.4) },
+  { id: 'ballR', parent: 'heelR', ...footStep(1, 6.9, -0.3) },
+  { id: 'toeR', parent: 'ballR', ...footStep(1, 4.7, -0.2) },
   ...fingerJoints(),
 ];
 
@@ -232,7 +244,7 @@ export interface DragTarget {
   kind: DragKind;
   /** ik2 only: the two posable joints the solve writes (chain root first). */
   chain?: [JointId, JointId];
-  /** FINE detail (fingers, the ball of the foot): offered only when the
+  /** FINE detail (fingers, the heel and ball of the foot): offered only when the
    *  host says the figure is big enough on screen to pick one of these
    *  from its neighbours — see {@link HAND_SPAN}; hit tests skip fine
    *  targets otherwise, and no knob is drawn for them. */
@@ -259,16 +271,20 @@ export const DRAG_TARGETS: readonly DragTarget[] = [
   // ball — exactly as a wrist drag bends the elbow.
   { joint: 'toeL', kind: 'ik2', chain: ['ballL', 'toeL'] },
   { joint: 'toeR', kind: 'ik2', chain: ['ballR', 'toeR'] },
-  // The BALL: the middle of the three foot joints, and the one that
-  // swings the whole foot about the ankle (heel down, toe pointed) while
-  // the ankle drag moves the leg and the toe drag bends the foot in two.
+  // The L's two inner corners. The HEEL swings about the ankle, so
+  // dragging it pitches the whole foot (heel up, toe pointed) — the one
+  // move the ankle's own IK drag can't make, since that carries the leg.
+  // The BALL swings about the heel, lifting the front of the foot.
   //
-  // FINE, like the fingers, because the foot points AT the viewer: face-on
-  // the three joints project barely two rig units apart — the ankle's own
-  // knob covers where the ball shows — so at ordinary sizes a ball target
-  // would only steal presses meant for the ankle. Once the host says the
-  // figure reads big, they separate on screen and all three are grabbable
-  // one from another.
+  // Both FINE, like the fingers, because the foot points AT the viewer:
+  // face-on the four joints project two to four rig units apart, well
+  // inside each other's knobs, so at ordinary sizes a heel or ball target
+  // would only steal presses meant for the ankle and the toe — the two
+  // ENDS, which are what a press near a foot means when the figure is
+  // small. Once the host says the figure reads big they separate on
+  // screen, and every joint of the foot answers for itself.
+  { joint: 'heelL', kind: 'fk', fine: true },
+  { joint: 'heelR', kind: 'fk', fine: true },
   { joint: 'ballL', kind: 'fk', fine: true },
   { joint: 'ballR', kind: 'fk', fine: true },
   // Every posable finger segment, zoom-gated.
@@ -312,10 +328,13 @@ export const BODY_CAPSULES: readonly BodyCapsule[] = [
   { a: 'hipR', b: 'kneeR', radius: 2.3 },
   { a: 'kneeL', b: 'ankleL', radius: 1.9 },
   { a: 'kneeR', b: 'ankleR', radius: 1.9 },
-  // The feet: heel-to-ball body and the bending toe, as shafts.
-  { a: 'ankleL', b: 'ballL', radius: 2.0 },
+  // The feet, as the L they are: the ankle's short drop into the heel,
+  // then the heel-to-ball body along the floor and the bending toe.
+  { a: 'ankleL', b: 'heelL', radius: 1.8 },
+  { a: 'heelL', b: 'ballL', radius: 2.0 },
   { a: 'ballL', b: 'toeL', radius: 1.8 },
-  { a: 'ankleR', b: 'ballR', radius: 2.0 },
+  { a: 'ankleR', b: 'heelR', radius: 1.8 },
+  { a: 'heelR', b: 'ballR', radius: 2.0 },
   { a: 'ballR', b: 'toeR', radius: 1.8 },
   // Fingers: one thin shaft per posable segment, so a curled finger
   // renders curled in the classic look too.
@@ -363,12 +382,14 @@ export const BODY_BLOBS: readonly BodyBlob[] = [
   { joint: 'palmR', ox: -1.25, oy: 0, oz: 0, rx: 1.9, ry: 1.3, rz: 2.6 },
   { joint: 'knuckL', ox: 1.2, oy: 0, oz: 0, rx: 1.7, ry: 1.35, rz: 2.75 },
   { joint: 'knuckR', ox: -1.2, oy: 0, oz: 0, rx: 1.7, ry: 1.35, rz: 2.75 },
-  // Feet: a heel block behind the ankle (the toe half is real bone now —
-  // see the foot capsules — so a bent toe shows bent in every look). The
+  // Feet: the heel block, riding the heel joint itself — it needs no
+  // offset now that the L puts a bone down there (the rest of the foot is
+  // real bone too, so a pitched or bent foot shows it in every look). The
   // foot's length lies toward +z (splayed), which is most of why turning
-  // the figure reads as 3D.
-  { joint: 'ankleL', ox: 0.95, oy: -3.4, oz: -1.8, rx: 3.0, ry: 2.6, rz: 3.1 },
-  { joint: 'ankleR', ox: -0.95, oy: -3.4, oz: -1.8, rx: 3.0, ry: 2.6, rz: 3.1 },
+  // the figure reads as 3D, and the block's 2.6 half-height sets the sole
+  // on the floor under a standing figure.
+  { joint: 'heelL', ox: 0, oy: 0, oz: 0, rx: 3.0, ry: 2.6, rz: 3.1 },
+  { joint: 'heelR', ox: 0, oy: 0, oz: 0, rx: 3.0, ry: 2.6, rz: 3.1 },
 ];
 
 /** Grab-knob radius drawn (and hit-tested) at each drag target, rig units.

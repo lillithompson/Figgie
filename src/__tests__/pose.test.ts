@@ -59,11 +59,15 @@ describe('the rest skeleton', () => {
   });
 
   it('keeps every joint in the posing plane — except the feet', () => {
-    // Depth belongs to flesh — with ONE exception: the foot chain (ball,
-    // toe) points at the viewer, and its stance splay is what keeps it
-    // poseable face-on. Everything else stays in the rig plane.
+    // Depth belongs to flesh — with ONE exception: the foot chain points at
+    // the viewer, and its stance splay is what keeps it poseable face-on.
+    // The heel steps BACKWARD down the same splayed line (it is the L's
+    // upright, behind the ankle); ball and toe run forward along the floor.
+    // Everything else stays in the rig plane.
     for (const j of SKELETON) {
-      if (/^(ball|toe)[LR]$/.test(j.id)) {
+      if (/^heel[LR]$/.test(j.id)) {
+        expect(j.dz).toBeLessThan(0);
+      } else if (/^(ball|toe)[LR]$/.test(j.id)) {
         expect(j.dz).toBeGreaterThan(0);
       } else {
         expect(j.dz).toBe(0);
@@ -194,9 +198,12 @@ describe('the flesh on the bones', () => {
   it('finger segments are FINE drag targets — zoom-gated, knobless', () => {
     const fine = DRAG_TARGETS.filter((t) => t.fine);
     // 3 segments x 5 fingers x 2 hands, plus each hand's palm effector and
-    // each foot's ball (the other joint that only separates zoomed in).
-    expect(fine).toHaveLength(34);
-    expect(fine.map((t) => t.joint)).toEqual(expect.arrayContaining(['ballL', 'ballR']));
+    // each foot's two inner corners — heel and ball, the joints that only
+    // separate from the ankle and the toe zoomed in.
+    expect(fine).toHaveLength(36);
+    expect(fine.map((t) => t.joint)).toEqual(
+      expect.arrayContaining(['heelL', 'heelR', 'ballL', 'ballR']),
+    );
     for (const t of fine) expect(t.kind).toBe('fk');
     // A middle segment poses like any FK joint: the tip rides rigidly,
     // the base joint below it holds still.
@@ -210,20 +217,68 @@ describe('the flesh on the bones', () => {
     expect(w.wristL.x).toBeCloseTo(w0.wristL.x, 6);
   });
 
-  it('has feet: a heel block and a real ankle→ball→toe chain', () => {
+  it('has feet: an L of ankle→heel→ball→toe, heel block riding the heel', () => {
     for (const s of ['L', 'R'] as const) {
-      const heel = on(`ankle${s}`)[0];
-      expect(heel.oz).toBeLessThan(0); // behind the ankle
-      // The chain steps forward (+z) and splays outward, so the foot is
-      // poseable even face-on…
+      const heel = restJoint(`heel${s}` as never);
       const ball = restJoint(`ball${s}` as never);
       const toe = restJoint(`toe${s}` as never);
+      // The L's UPRIGHT: from the ankle the first bone drops, and drops far
+      // more than it steps back.
+      expect(heel.parent).toBe(`ankle${s}`);
+      expect(heel.dy).toBeLessThan(-2);
+      expect(heel.dz).toBeLessThan(0); // behind the ankle
+      expect(Math.abs(heel.dy)).toBeGreaterThan(Math.hypot(heel.dx, heel.dz));
+      // The L's FOOT: heel to ball to toe, forward (+z) and splayed outward
+      // so the foot stays poseable face-on, and near enough level that the
+      // sole lies along the floor rather than ramping down it.
+      expect(ball.parent).toBe(`heel${s}`);
+      expect(toe.parent).toBe(`ball${s}`);
       expect(ball.dz).toBeGreaterThan(2);
       expect(toe.dz).toBeGreaterThan(2);
       expect(Math.sign(ball.dx)).toBe(s === 'L' ? -1 : 1);
-      // …and both foot bones are drawn shafts.
-      expect(BODY_CAPSULES.find((c) => c.b === `ball${s}`)).toBeDefined();
-      expect(BODY_CAPSULES.find((c) => c.b === `toe${s}`)).toBeDefined();
+      for (const step of [ball, toe]) {
+        expect(Math.abs(step.dy)).toBeLessThan(Math.hypot(step.dx, step.dz) * 0.1);
+      }
+      // The heel block rides the heel joint itself, no offset needed, and
+      // every bone of the L is a drawn shaft.
+      const block = on(`heel${s}`);
+      expect(block).toHaveLength(1);
+      expect([block[0].ox, block[0].oy, block[0].oz]).toEqual([0, 0, 0]);
+      expect(on(`ankle${s}`)).toHaveLength(0);
+      for (const b of [`heel${s}`, `ball${s}`, `toe${s}`]) {
+        expect(BODY_CAPSULES.find((c) => c.b === b)).toBeDefined();
+      }
+    }
+  });
+
+  it('sits every foot joint INSIDE the foot, not on top of it', () => {
+    // The complaint the L fixes: the old chain hung off the ankle at ankle
+    // height, so the ball perched on the foot's top face. Now each of heel,
+    // ball and toe is buried in flesh — the widest capsule or blob meeting
+    // it reaches both above and below the joint — and the whole foot's
+    // underside sits on the floor the figure stands on.
+    const w = solveWorld(defaultPose());
+    for (const s of ['L', 'R'] as const) {
+      const parts = [`heel${s}`, `ball${s}`, `toe${s}`] as const;
+      // The foot's own flesh — the heel block and the two shafts along the
+      // floor, NOT the shaft dropping from the ankle into it.
+      const reach: number[] = [];
+      for (const id of parts) {
+        for (const c of BODY_CAPSULES) {
+          if ((c.a === id || c.b === id) && c.a !== `ankle${s}`) {
+            reach.push(w[id].y + c.radius, w[id].y - c.radius);
+          }
+        }
+        for (const b of on(id)) reach.push(w[id].y + b.ry, w[id].y - b.ry);
+      }
+      const sole = Math.min(...reach);
+      const top = Math.max(...reach);
+      expect(sole).toBeCloseTo(0, 6); // the figure stands ON the floor
+      for (const id of parts) {
+        expect(w[id].y).toBeGreaterThan(sole + 0.5);
+        expect(w[id].y).toBeLessThan(top - 0.5); // NOT perched on the top face
+        expect(w[id].y).toBeLessThan(w[`ankle${s}`].y - 2);
+      }
     }
   });
 

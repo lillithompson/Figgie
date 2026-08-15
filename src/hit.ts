@@ -22,10 +22,10 @@ export interface Hit {
 /**
  * Hit-test a canvas-space point (CSS px). Nearest target within
  * {@link HIT_RADIUS_PX}; null clears the way for the host's own gestures.
- * FINE targets (fingertips, the ball of the foot) are offered only with
- * `fine` — the caller's "the hand is big enough on screen" zoom gate — so
- * at ordinary sizes a press near a hand still grabs the wrist, and one on
- * a foot the ankle or the toe.
+ * FINE targets (fingertips, the heel and ball of the foot) are offered only
+ * with `fine` — the caller's "the hand is big enough on screen" zoom gate —
+ * so at ordinary sizes a press near a hand still grabs the wrist, and one
+ * on a foot one of its two ends, the ankle or the toe.
  */
 export function hitTest(
   pose: FiggiePose,
