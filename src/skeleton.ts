@@ -470,63 +470,103 @@ export function jointBound(id: JointId): number {
 }
 
 /**
- * The joints each RIGID ASSEMBLY hangs from: a hand (everything out from
- * the wrist) and a foot (everything down from the ankle).
+ * The pairs of joints with NO DRAWN BONE BETWEEN THEM — the only places a
+ * figure can come apart when something moves one joint and not its
+ * neighbour (the push brush being the one thing that does).
  *
- * A limb is drawn as bones BETWEEN joints, so moving one joint and not its
- * neighbour just makes the bone longer — a thigh stretches and the leg is
- * still a leg. A hand and a foot are not drawn that way. They are single
- * solids hung ON one joint each (the palm across its pin and knuckle line,
- * the foot's body on the ball, its toe box on the toe) with the wrist's and
- * ankle's own circles drawn at the end of the forearm and shin. Move the
- * pieces of one differently and it does not stretch, it COMES APART: the
- * palm floats off the wrist, the fingers off the knuckle line, the foot off
- * its heel.
+ * Almost everything in the figure is drawn as a bone spanning two joints,
+ * or as a solid skinned across the joints it spans: move one end and the
+ * shape stretches or shears, and a thigh is still a thigh, a foot still a
+ * foot, a palm still a palm. That is what lets the brush SMEAR the figure —
+ * pushing a fingertip while its knuckle stays put has to bend the finger,
+ * or the brush is not a deformer at all.
  *
- * So anything that deforms the figure by moving joints (the push brush)
- * moves an assembly as ONE PIECE. What the wrist does, the whole hand does.
- * The deformation lands where a drawn figure can absorb it — in the forearm
- * and the shin, which stretch.
+ * These pairs are the exceptions. A finger's base knuckle is not posable
+ * and carries no bone back to the plate — it simply sits INSIDE the palm
+ * solid, so it has to go where that solid's joint goes or the finger floats
+ * off the hand. The palm's pin likewise sits at the end of the forearm,
+ * behind the wrist's drawn circle, with the plate's inner rim hung on it.
  *
- * Posing is untouched: these joints still take their own angles, so fingers
- * curl and feet flex exactly as before. It is only DISPLACEMENT that has to
- * keep the assembly together.
+ * The feet are NOT on this list. Their two solids used to be rigid boxes
+ * and were, which is why the whole foot had to travel as one; they are
+ * skinned across the joints they span now (ink.ts's FOOT_BODY / TOE_BOX),
+ * exactly as the palm and the pelvis shield are, so heel, ball and toe are
+ * free to be smeared apart like any other bone.
+ *
+ * Posing was never affected either way: every one of these joints still
+ * takes its own angle, so fingers curl and feet flex the same. It is only
+ * DISPLACEMENT that has to keep a solid together.
  */
-export const RIGID_ASSEMBLY_ROOTS: readonly JointId[] = [
-  'wristL', 'wristR', 'ankleL', 'ankleR',
-];
-
-/** Every joint's assembly root, for the joints that are in one. Built by
- *  walking the skeleton once — parents precede children, so membership
- *  falls out of the parent's — which is why a finger joint added later
- *  needs no edit here. */
-const ASSEMBLY_OF: ReadonlyMap<JointId, JointId> = (() => {
-  const m = new Map<JointId, JointId>();
-  for (const root of RIGID_ASSEMBLY_ROOTS) m.set(root, root);
+const GLUED_PAIRS: ReadonlyArray<readonly [JointId, JointId]> = (() => {
+  const pairs: Array<readonly [JointId, JointId]> = [
+    ['wristL', 'palmL'], ['wristR', 'palmR'],
+  ];
+  // Every finger's rigid base rides whatever plate joint it hangs on — the
+  // knuckle line for the four fingers, the inner palm for the thumb — so a
+  // finger added later needs no edit here.
   for (const j of SKELETON) {
-    if (m.has(j.id) || !j.parent) continue;
-    const root = m.get(j.parent);
-    if (root) m.set(j.id, root);
+    if (!j.parent || !FINGER_JOINT_IDS.has(j.id) || j.posable) continue;
+    pairs.push([j.parent, j.id]);
   }
-  return m;
+  return pairs;
 })();
 
-/** The rigid assembly `id` belongs to, named by the joint it hangs from —
+/** Every joint's rigid group, keyed by the group's FIRST member in skeleton
+ *  order — the joint nearest the body, which is the one a caller naturally
+ *  thinks of the piece as hanging from. Undefined for a joint free to move
+ *  on its own, which is nearly all of them. Built by unioning
+ *  {@link GLUED_PAIRS}, so two pairs that share a joint make one piece. */
+const ASSEMBLY_OF: ReadonlyMap<JointId, JointId> = (() => {
+  const parent = new Map<JointId, JointId>();
+  const find = (id: JointId): JointId => {
+    const up = parent.get(id);
+    if (up === undefined || up === id) return id;
+    const root = find(up);
+    parent.set(id, root);
+    return root;
+  };
+  for (const [a, b] of GLUED_PAIRS) {
+    if (!parent.has(a)) parent.set(a, a);
+    if (!parent.has(b)) parent.set(b, b);
+    parent.set(find(b), find(a));
+  }
+  // Rename each group after its first member in skeleton order (parents
+  // precede children, so that is the one nearest the body).
+  const named = new Map<JointId, JointId>();
+  const out = new Map<JointId, JointId>();
+  for (const j of SKELETON) {
+    if (!parent.has(j.id)) continue;
+    const root = find(j.id);
+    if (!named.has(root)) named.set(root, j.id);
+    out.set(j.id, named.get(root)!);
+  }
+  return out;
+})();
+
+/** The rigid group `id` belongs to, named by the joint nearest the body —
  *  or undefined for a joint that is free to move on its own. See
- *  {@link RIGID_ASSEMBLY_ROOTS}. */
+ *  {@link GLUED_PAIRS}. */
 export function assemblyOf(id: JointId): JointId | undefined {
   return ASSEMBLY_OF.get(id);
 }
 
 const ASSEMBLY_MEMBERS: ReadonlyMap<JointId, readonly JointId[]> = (() => {
   const m = new Map<JointId, JointId[]>();
-  for (const root of RIGID_ASSEMBLY_ROOTS) m.set(root, []);
   for (const j of SKELETON) {
     const root = ASSEMBLY_OF.get(j.id);
-    if (root) m.get(root)!.push(j.id);
+    if (!root) continue;
+    const members = m.get(root);
+    if (members) members.push(j.id);
+    else m.set(root, [j.id]);
   }
   return m;
 })();
+
+/** The joints each rigid group is named by — the pieces the push brush has
+ *  to move whole. Two per hand (the palm's pin behind the wrist with the
+ *  thumb's base, and the knuckle line with the four bases hung on it), and
+ *  none anywhere else. */
+export const RIGID_ASSEMBLY_ROOTS: readonly JointId[] = Array.from(ASSEMBLY_MEMBERS.keys());
 
 /** Every joint of the assembly headed by `root`, the root itself first —
  *  what a caller moving one as a single piece has to answer for. Empty for

@@ -20,23 +20,28 @@
 // bones are drawn between joints and stretch, but the flesh hung ON a
 // joint (a foot's boxes, a palm's plate) has only that joint to follow.
 //
-// AND A HAND OR A FOOT MOVES AS ONE PIECE. Those two are not drawn as
-// bones between joints — they are solids hung on single joints (the palm,
-// the foot's body, its toe box), so pieces of one moving by different
-// amounts do not stretch, they come apart: the palm floats off the wrist,
-// the fingers off the knuckle line, the foot off its heel. Every joint in
-// one takes the strongest share anywhere in it, and the stage clamp is
-// applied once for all of them — so a brush over the fingertips carries the
-// hand, and the deformation lands in the forearm, which is drawn as a bone
-// and can stretch. Posing is untouched: fingers still curl, feet still flex.
+// AND IT SMEARS. Every drawn bone spans two joints and every drawn solid
+// is skinned across the joints it spans, so pushing a fingertip while its
+// knuckle stays put BENDS the finger, pushing a heel away from its ball
+// stretches the sole, and a brush laid across the hand carries its joints
+// by the amount each is under — which is the whole point of a deformer.
+// Nothing has to be zoomed in to do it: what separates one joint from its
+// neighbour is the brush's own size, and the smallest brush is a fraction
+// of a finger.
+//
+// The one exception is a joint with NO bone back to its parent: a finger's
+// rigid base sitting inside the palm plate, and the palm's own pin behind
+// the wrist's circle. Those few pairs are drawn as one piece and have to
+// move as one, so each takes the strongest share anywhere in it and is
+// stage-clamped once for all of it (see GLUED_PAIRS). They span about two
+// rig units — nothing a stroke can tell apart.
 //
 // THE BRUSH ALWAYS HAS SOMEWHERE TO PUSH. Two things make sure of it. The
 // stage keeps room past the skeleton's own reach (`PUSH_ROOM`), because
 // sized to the reach exactly it left a raised hand or an extended foot —
 // the ones at the end of the longest chains — no room at all. And a piece
 // that does reach the edge SLIDES along it under the finger rather than
-// stopping dead (`assemblySlide`): one pinned fingertip must not freeze
-// the twenty-three joints of the hand behind it.
+// stopping dead (`assemblySlide`).
 //
 // The taper still does the work that matters. It shapes the UPSTREAM
 // transition — the shoulder near the rim moving a little where the elbow
@@ -242,10 +247,11 @@ export function pushPose(
   const offsets: Partial<Record<JointId, [number, number, number]>> = { ...(pose.offsets ?? {}) };
 
   // PASS 1 — each joint's own falloff, and the strongest one anywhere in
-  // each rigid assembly. A hand and a foot are drawn as single pieces, so
-  // the brush has to give every joint in one the SAME share: touch a
-  // fingertip and the whole hand comes, or the hand tears in half (see
-  // RIGID_ASSEMBLY_ROOTS).
+  // each rigid group. Almost every joint keeps its own share, which is
+  // what makes the brush smear; only the few pairs with no bone between
+  // them (a finger's base inside the palm plate, the palm's pin behind the
+  // wrist) take one share for all of them, or the piece tears (see
+  // GLUED_PAIRS).
   const own = {} as Record<JointId, number>;
   const assemblyShare = new Map<JointId, number>();
   for (const joint of SKELETON) {

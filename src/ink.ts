@@ -442,10 +442,10 @@ function palmBinds(side: 'L' | 'R'): BoundVert[] {
 const HAND_W = SHAPE_W * 0.5;
 const FINGER_W = 0.35;
 /** Foot VOLUMES, tapered rectangular solids in the foot chain's splayed
- *  rest frames: the BODY spans heel to ball (anchored at the ball joint,
- *  so a swing at the heel pitches it about the ankle and a swing at the
- *  ball lifts it off the heel) and the TOE box spans ball to tip (anchored
- *  at the toe joint — the skinning that lets the foot bend at the ball).
+ *  rest frames: the BODY spans heel to ball (hung on the ball joint, so a
+ *  swing at the heel pitches it about the ankle and a swing at the ball
+ *  lifts it off the heel) and the TOE box spans ball to tip (hung on the
+ *  toe joint — the skinning that lets the foot bend at the ball).
  *  Corners are authored in the unsplayed frame (x across, y up, z forward)
  *  and splay-rotated once at module init.
  *
@@ -455,23 +455,43 @@ const FINGER_W = 0.35;
  *  themselves have not moved a hair — the same drawn foot, re-hung on the
  *  joints' new places, so the sketch still lands where the classic bake
  *  does. What connects the ankle down to all this is the heel stroke, the
- *  L's upright. */
-const FOOT_BODY_RAW: ReadonlyArray<[number, number, number]> = [
-  [-2.34, 1.94, 0], [2.34, 1.94, 0], [-2.34, -1.0, 0], [2.34, -1.0, 0],
-  [-1.68, 1.94, -8.04], [1.68, 1.94, -8.04], [-1.68, -1.0, -8.04], [1.68, -1.0, -8.04],
+ *  L's upright.
+ *
+ *  Each box is SKINNED across the two joints it spans: its far corners are
+ *  carried by the joint at the other end (`far`), its near ones by the
+ *  joint it hangs on. At rest that is exactly the box it always was — both
+ *  frames rest unrotated, so the two ends of the blend name the same point
+ *  — and under posing it is very nearly so, since each far face sits right
+ *  on the joint that now carries it. What it buys is the PUSH brush: a heel
+ *  smeared away from its ball used to leave the sole behind, so the whole
+ *  foot had to travel as one piece; skinned, the sole stretches between the
+ *  two the way every drawn bone does, and the foot's joints can be smeared
+ *  apart like anything else. (The same reason the pelvis shield is skinned
+ *  onto its hips — see PELVIS_BINDS.) */
+type SpanVert = [number, number, number, 'near' | 'far'];
+
+const FOOT_BODY_RAW: ReadonlyArray<SpanVert> = [
+  [-2.34, 1.94, 0, 'near'], [2.34, 1.94, 0, 'near'],
+  [-2.34, -1.0, 0, 'near'], [2.34, -1.0, 0, 'near'],
+  [-1.68, 1.94, -8.04, 'far'], [1.68, 1.94, -8.04, 'far'],
+  [-1.68, -1.0, -8.04, 'far'], [1.68, -1.0, -8.04, 'far'],
 ];
-const TOE_BOX_RAW: ReadonlyArray<[number, number, number]> = [
-  [-1.92, 1.71, 1.08], [1.92, 1.71, 1.08], [-1.92, -1.05, 1.08], [1.92, -1.05, 1.08],
-  [-2.34, 2.12, -4.68], [2.34, 2.12, -4.68], [-2.34, -0.82, -4.68], [2.34, -0.82, -4.68],
+const TOE_BOX_RAW: ReadonlyArray<SpanVert> = [
+  [-1.92, 1.71, 1.08, 'near'], [1.92, 1.71, 1.08, 'near'],
+  [-1.92, -1.05, 1.08, 'near'], [1.92, -1.05, 1.08, 'near'],
+  [-2.34, 2.12, -4.68, 'far'], [2.34, 2.12, -4.68, 'far'],
+  [-2.34, -0.82, -4.68, 'far'], [2.34, -0.82, -4.68, 'far'],
 ];
 
 function splayVolume(
-  raw: ReadonlyArray<[number, number, number]>,
+  raw: ReadonlyArray<SpanVert>,
   angle: number,
-): Array<[number, number, number]> {
+): SpanVert[] {
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);
-  return raw.map(([x, y, z]) => [x * cos + z * sin, y, -x * sin + z * cos]);
+  return raw.map(([x, y, z, end]): SpanVert => [
+    x * cos + z * sin, y, -x * sin + z * cos, end,
+  ]);
 }
 
 const FOOT_BODY_L = splayVolume(FOOT_BODY_RAW, -FOOT_SPLAY);
@@ -612,11 +632,15 @@ function massSilhouettes(
     const guide = convexHull(proj).map((p) => ({ x: p.x, y: p.y, z: zc }));
     return { id, guide, fillZ: zc - FILL_BIAS, width };
   };
-  /** A whole volume riding one joint — the unskinned masses. */
-  const box = (
-    joint: JointId,
-    volume: ReadonlyArray<[number, number, number]>,
-  ): BoundVert[] => volume.map(([x, y, z]): BoundVert => [joint, x, y, z]);
+  /** A volume hung on `near` and stretched to `far`: corners authored in
+   *  `near`'s frame, the far face handed over to the joint at the other
+   *  end of the span (see FOOT_BODY_RAW). */
+  const span = (
+    near: JointId,
+    far: JointId,
+    volume: ReadonlyArray<SpanVert>,
+  ): BoundVert[] => volume.map(([x, y, z, end]): BoundVert =>
+    (end === 'far' ? [near, x, y, z, far, 1] : [near, x, y, z]));
   return [
     make('chest', CHEST_BINDS),
     make('pelvis', PELVIS_BINDS),
@@ -624,14 +648,15 @@ function massSilhouettes(
     // coming apart into an inner and an outer plate.
     make('handL', palmBinds('L'), HAND_W),
     make('handR', palmBinds('R'), HAND_W),
-    // Foot body rides the ball joint (a heel swing pitches it about the
-    // ankle, a ball swing lifts it off the heel); the toe box rides the
-    // toe joint, so a toe drag bends the foot at the ball — solid follows
-    // bone, drawn skinning.
-    make('footL', box('ballL', FOOT_BODY_L)),
-    make('footR', box('ballR', FOOT_BODY_R)),
-    make('toeL', box('toeL', TOE_BOX_L)),
-    make('toeR', box('toeR', TOE_BOX_R)),
+    // Foot body hangs on the ball joint and stretches back to the heel (a
+    // heel swing pitches it about the ankle, a ball swing lifts it off the
+    // heel); the toe box hangs on the toe and stretches back to the ball,
+    // so a toe drag bends the foot at the ball — solid follows bone, drawn
+    // skinning.
+    make('footL', span('ballL', 'heelL', FOOT_BODY_L)),
+    make('footR', span('ballR', 'heelR', FOOT_BODY_R)),
+    make('toeL', span('toeL', 'ballL', TOE_BOX_L)),
+    make('toeR', span('toeR', 'ballR', TOE_BOX_R)),
   ];
 }
 

@@ -669,6 +669,72 @@ describe('the vector bake', () => {
   });
 });
 
+describe('the foot\'s solids are skinned across the joints they span', () => {
+  // Why they had to be: they were rigid boxes hung on one joint each, so a
+  // heel smeared away from its ball left the sole behind — which is what
+  // forced the whole foot to travel as one piece under the push brush, and
+  // what stopped the brush from being able to smear a foot at all.
+  const w0 = solveWorld(defaultPose());
+  const soleOf = (pose: FiggiePose, id: 'footL' | 'toeL') =>
+    sketchFills(pose, 0).find((f) => f.id === id)!.points;
+
+  /** Shove the BALL of the foot forward, tight enough to leave the heel
+   *  behind — the ball's own parent, so nothing carries it along. (Pushing
+   *  the heel instead would take the whole chain hanging off it with it,
+   *  which is the point of the parent floor and tears nothing.) */
+  const ballForward = (d: number) => {
+    const at = projectYaw(w0.ballL.x, w0.ballL.y, w0.ballL.z, 0, w0.root.x);
+    return pushPose(defaultPose(), 0, at.px, at.py, -d, 0, 3);
+  };
+
+  it('draws exactly the same foot at rest', () => {
+    // The two ends of a skinned vertex name the same world point at rest,
+    // so this may not move the drawing a hair — the sketch still lands
+    // where the classic bake does.
+    for (const id of ['footL', 'toeL'] as const) {
+      for (const p of soleOf(defaultPose(), id)) {
+        expect(Number.isFinite(p.x) && Number.isFinite(p.y)).toBe(true);
+      }
+    }
+    const foot = soleOf(defaultPose(), 'footL');
+    expect(foot.length).toBeGreaterThanOrEqual(4);
+    // Rest x-extent of the body, measured off the joints it hangs between.
+    const xs = foot.map((p) => p.x);
+    expect(Math.min(...xs)).toBeLessThan(w0.heelL.x);
+    expect(Math.max(...xs)).toBeGreaterThan(w0.ballL.x);
+  });
+
+  it('stretches when the brush pulls the ball out from over the heel', () => {
+    const pushed = ballForward(4);
+    const w = solveWorld(pushed);
+    const ballMoved = w0.ballL.x - w.ballL.x;
+    const heelMoved = w0.heelL.x - w.heelL.x;
+    expect(ballMoved).toBeGreaterThan(2);       // the ball really moved…
+    expect(heelMoved).toBeLessThan(ballMoved / 2); // …and left the heel behind
+    // The sole's two ends each went with their own joint: it stretched,
+    // where a box hung on one joint would have slid off the other.
+    const rest = soleOf(defaultPose(), 'footL');
+    const moved = soleOf(pushed, 'footL');
+    const heelEnd = (pts: typeof rest) => Math.max(...pts.map((p) => p.x));
+    const ballEnd = (pts: typeof rest) => Math.min(...pts.map((p) => p.x));
+    expect(heelEnd(rest) - heelEnd(moved)).toBeCloseTo(heelMoved, 0);
+    expect(ballEnd(rest) - ballEnd(moved)).toBeCloseTo(ballMoved, 0);
+    expect(heelEnd(moved) - ballEnd(moved))
+      .toBeGreaterThan(heelEnd(rest) - ballEnd(rest) + 1);
+  });
+
+  it('keeps the heel joint as deep inside the sole as it is at rest', () => {
+    // "Still attached", measured the way the pelvis shield's test measures
+    // it: the joint's place within its own flesh does not change.
+    const depth = (pose: FiggiePose) => {
+      const w = solveWorld(pose);
+      const xs = soleOf(pose, 'footL').map((p) => p.x);
+      return Math.max(...xs) - w.heelL.x;
+    };
+    expect(depth(ballForward(4))).toBeCloseTo(depth(defaultPose()), 0);
+  });
+});
+
 describe('the palm is one skinned solid', () => {
   /** The palm-bend effector, folded in the view plane. */
   const bentPalm = (angle: number) => ({

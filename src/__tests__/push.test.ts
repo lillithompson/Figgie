@@ -191,13 +191,13 @@ describe('the turned view', () => {
 });
 
 /**
- * A hand and a foot are drawn as solids hung on single joints, not as bones
- * between joints, so they cannot stretch — moved unevenly they come apart.
- * The brush moves each as ONE piece (see RIGID_ASSEMBLY_ROOTS).
+ * The brush is a DEFORMER: a stroke across a hand or a foot moves each
+ * joint by what it is under, so fingers bend and soles stretch. Only the
+ * few pairs with no drawn bone between them travel as one (GLUED_PAIRS).
  */
-describe('a hand and a foot arrive in one piece', () => {
-  const HAND_L = ['wristL', 'palmL', 'knuckL', 'thumbL0', 'thumbL3', 'indexL0',
-    'middleL2', 'middleL3', 'pinkyL3'] as const;
+describe('the brush smears a hand and a foot', () => {
+  const PLATE_L = ['wristL', 'palmL', 'thumbL0'] as const;
+  const KNUCKLE_L = ['knuckL', 'indexL0', 'middleL0', 'ringL0', 'pinkyL0'] as const;
   const FOOT_L = ['ankleL', 'heelL', 'ballL', 'toeL'] as const;
 
   /** Every joint's displacement between two poses. */
@@ -211,61 +211,101 @@ describe('a hand and a foot arrive in one piece', () => {
     });
   };
 
-  it('the assemblies are the wrist and the ankle outward, and nothing else', () => {
-    expect(assemblyOf('middleL3')).toBe('wristL');
-    expect(assemblyOf('palmR')).toBe('wristR');
-    expect(assemblyOf('toeL')).toBe('ankleL');
-    expect(assemblyOf('wristL')).toBe('wristL');
-    // A limb IS drawn as bones between joints, so it is free to stretch.
+  /** How far apart two joints are, to see whether a piece held together. */
+  const spanOf = (pose: FiggiePose, a: string, b: string) => {
+    const w = solveWorld(pose);
+    const p = w[a as never] as { x: number; y: number; z: number };
+    const q = w[b as never] as { x: number; y: number; z: number };
+    return Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z);
+  };
+
+  /** How far `a` travelled RELATIVE to `b` — the smear itself. Zero for two
+   *  joints of one rigid piece, whatever the brush did to the pair. */
+  const smear = (before: FiggiePose, after: FiggiePose, a: string, b: string) => {
+    const [da, db] = shift(before, after, [a, b]);
+    return Math.hypot(da[0] - db[0], da[1] - db[1], da[2] - db[2]);
+  };
+
+  it('holds together only what has no bone between it — the palm plate', () => {
+    // A finger's rigid base sits INSIDE the palm solid with nothing drawn
+    // back to the knuckle line, and the palm's own pin sits behind the
+    // wrist's circle: those pairs are one piece. Everything else in the
+    // figure spans two joints and is free to stretch.
+    expect(assemblyOf('palmL')).toBe('wristL');
+    expect(assemblyOf('thumbL0')).toBe('wristL');
+    expect(assemblyOf('middleL0')).toBe('knuckL');
+    expect(assemblyMembers('wristL')).toEqual([...PLATE_L]);
+    expect(assemblyMembers('knuckL')).toEqual([...KNUCKLE_L]);
+    // The articulated finger segments are drawn as bones, so they smear.
+    expect(assemblyOf('middleL3')).toBeUndefined();
+    expect(assemblyOf('thumbL1')).toBeUndefined();
+    // So is every joint of the foot — its two solids are skinned across
+    // the joints they span now (ink.ts), so the sole stretches.
+    for (const id of FOOT_L) expect(assemblyOf(id)).toBeUndefined();
     expect(assemblyOf('elbowL')).toBeUndefined();
-    expect(assemblyOf('kneeL')).toBeUndefined();
     expect(assemblyOf('root')).toBeUndefined();
-    // The members carry the whole hand, root first.
-    const hand = assemblyMembers('wristL');
-    expect(hand[0]).toBe('wristL');
-    expect(hand).toEqual(expect.arrayContaining(['palmL', 'knuckL', 'middleL3']));
-    expect(hand).not.toContain('elbowL');
-    expect(hand).not.toContain('wristR');
-    expect(assemblyMembers('elbowL')).toEqual([]);
   });
 
-  it('a brush on the fingertips carries the whole hand, wrist and all', () => {
-    // The reported tear: a brush small enough to catch fingers and not the
-    // wrist moved them off the palm they hang on. The hand takes the
-    // STRONGEST share anywhere in it, so all of it travels together.
+  it('bends a finger: a brush on the tip leaves the knuckle behind', () => {
+    // The whole point of a deformer, and what the hand could not do while
+    // it travelled as one piece. The brush is small — a fraction of a
+    // finger — and nothing has to be zoomed in for it: what separates one
+    // joint from the next is the brush's own size.
     const rest = defaultPose();
     const at = shown(rest, 'middleL3');
     const pushed = pushPose(rest, 0, at.px, at.py, 0, 4, 3);
-    for (const [dx, dy, dz] of shift(rest, pushed, HAND_L)) {
-      expect(dx).toBeCloseTo(0, 6);
-      expect(dy).toBeCloseTo(4, 6);
-      expect(dz).toBeCloseTo(0, 6);
-    }
-    // The deformation lands in the forearm instead, which is a drawn bone
-    // and stretches — the elbow stays put.
-    const [elbow] = shift(rest, pushed, ['elbowL']);
-    expect(Math.hypot(elbow[0], elbow[1], elbow[2])).toBeCloseTo(0, 6);
+    const [tip, mid, base, knuck, wrist] =
+      shift(rest, pushed, ['middleL3', 'middleL2', 'middleL0', 'knuckL', 'wristL'])
+        .map(([, dy]) => dy);
+    expect(tip).toBeCloseTo(4, 6);
+    expect(mid).toBeGreaterThan(0);
+    expect(mid).toBeLessThan(tip);       // the finger BENT
+    expect(base).toBeLessThan(mid);
+    expect(knuck).toBeLessThan(mid);
+    expect(wrist).toBeLessThan(1);       // the hand stayed where it was
+    // …and the tip really did travel out from under its own knuckle —
+    // that is where the deformation went, into bones drawn between joints.
+    expect(smear(rest, pushed, 'middleL3', 'middleL0')).toBeGreaterThan(2);
   });
 
-  it('a brush on the toe carries the whole foot, ankle and all', () => {
+  it('stretches a sole: a brush on the toe leaves the heel behind', () => {
     const rest = defaultPose();
     const at = shown(rest, 'toeL');
     const pushed = pushPose(rest, 0, at.px, at.py, 3, 0, 3);
-    for (const [dx, dy, dz] of shift(rest, pushed, FOOT_L)) {
-      expect(dx).toBeCloseTo(3, 6);
-      expect(dy).toBeCloseTo(0, 6);
-      expect(dz).toBeCloseTo(0, 6);
+    const [toe, ball, heel, ankle] =
+      shift(rest, pushed, ['toeL', 'ballL', 'heelL', 'ankleL']).map(([dx]) => dx);
+    expect(toe).toBeCloseTo(3, 6);
+    expect(ball).toBeLessThan(toe);
+    expect(heel).toBeLessThan(ball);
+    expect(ankle).toBeLessThan(0.5);
+    // The sole is one skinned solid across these joints (ink.ts), so it
+    // stretches with them instead of leaving the heel behind.
+    expect(smear(rest, pushed, 'toeL', 'heelL')).toBeGreaterThan(1.5);
+  });
+
+  it('carries the plate whole when the brush catches a finger base', () => {
+    // The tear that started all this, in the one place it can still
+    // happen: a base knuckle has nothing drawn back to the knuckle line,
+    // so a brush tight enough to catch one and not the other has to move
+    // both. Each plate takes the strongest share anywhere in it.
+    const rest = defaultPose();
+    const at = shown(rest, 'middleL0');
+    const pushed = pushPose(rest, 0, at.px, at.py, 0, 3, 1.2);
+    for (const [, dy] of shift(rest, pushed, KNUCKLE_L)) expect(dy).toBeCloseTo(3, 6);
+    for (const group of [PLATE_L, KNUCKLE_L]) {
+      for (const a of group) {
+        for (const b of group) {
+          expect(spanOf(pushed, a, b)).toBeCloseTo(spanOf(rest, a, b), 9);
+        }
+      }
     }
-    const [knee] = shift(rest, pushed, ['kneeL']);
-    expect(Math.hypot(knee[0], knee[1], knee[2])).toBeCloseTo(0, 6);
   });
 
   it('answers at the end of an extended limb, where posing has already reached', () => {
     // The reported deadness: a raised arm puts its fingertip at the far
     // end of the longest chain in the figure, and with the stage sized to
     // exactly that reach there was nothing left to push into. Every
-    // direction moved it by nothing — and because a hand travels as one
-    // piece, that one pinned fingertip froze the whole hand behind it.
+    // direction moved it by nothing.
     const raised: FiggiePose = {
       ...defaultPose(),
       angles: { shoulderL: quatFromAxisAngle(0, 0, 1, -Math.PI / 2) },
@@ -282,16 +322,13 @@ describe('a hand and a foot arrive in one piece', () => {
       const after = solveWorld(pushPose(raised, 0, at.px, at.py, dx, dy, 10));
       expect(after.middleL3.x - w.middleL3.x).toBeCloseTo(dx, 6);
       expect(after.middleL3.y - w.middleL3.y).toBeCloseTo(dy, 6);
-      // …and the wrist came too, so the hand is still a hand.
-      expect(after.wristL.x - w.wristL.x).toBeCloseTo(dx, 6);
     }
   });
 
   it('slides along the stage rather than stopping dead against it', () => {
-    // Push a foot until it is out of room, then keep pushing: a lone joint
-    // has always slid along the boundary, and a rigid piece that stopped
-    // instead read as a brush that had simply switched off. It never stops
-    // answering the finger.
+    // Push a foot until it is out of room, then keep pushing: a joint that
+    // stopped dead at the boundary read as a brush that had simply
+    // switched off. It never stops answering the finger.
     const rest = defaultPose();
     let pose = rest;
     let dabs = 0;
@@ -309,27 +346,19 @@ describe('a hand and a foot arrive in one piece', () => {
     expect(Math.hypot(
       after.toeL.x - before.toeL.x, after.toeL.y - before.toeL.y,
     )).toBeGreaterThan(PUSH_ROOM);
-    // …in one piece, and inside the stage.
+    // …and stayed inside the stage.
     for (const id of FOOT_L) {
       expect(Math.hypot(
         after[id].x - after.root.x, after[id].y - after.root.y, after[id].z - after.root.z,
       ) + jointBound(id)).toBeLessThanOrEqual(STAGE_REACH + 1e-6);
     }
-    for (const a of FOOT_L) {
-      for (const b of FOOT_L) {
-        expect(Math.hypot(after[a].x - after[b].x, after[a].y - after[b].y, after[a].z - after[b].z))
-          .toBeCloseTo(Math.hypot(
-            before[a].x - before[b].x, before[a].y - before[b].y, before[a].z - before[b].z,
-          ), 9);
-      }
-    }
   });
 
-  it('keeps its shape even when the shove runs out of stage', () => {
-    // The other half of the tear: the clamp is per joint, and a fingertip
-    // runs out of room well before the wrist does. Clamped one joint at a
-    // time, a hard push tore the hand apart against the stage; one travel
-    // for the whole assembly cannot.
+  it('keeps a plate whole even when the shove runs out of stage', () => {
+    // The other half of the tear: the clamp is per joint, and the joints
+    // of one plate run out of room at slightly different moments. Clamped
+    // one at a time, a hard push pulled the palm apart against the stage;
+    // one travel for the whole plate cannot.
     const rest = defaultPose();
     const at = shown(rest, 'wristL');
     let pose = rest;
@@ -340,16 +369,12 @@ describe('a hand and a foot arrive in one piece', () => {
     expect(Math.hypot(
       after.wristL.x - before.wristL.x, after.wristL.y - before.wristL.y,
     )).toBeGreaterThan(5);
-    // …and every distance inside the hand is what it was at rest.
-    for (const a of HAND_L) {
-      for (const b of HAND_L) {
-        const rested = Math.hypot(
-          before[a].x - before[b].x, before[a].y - before[b].y, before[a].z - before[b].z,
-        );
-        const pushedD = Math.hypot(
-          after[a].x - after[b].x, after[a].y - after[b].y, after[a].z - after[b].z,
-        );
-        expect(pushedD).toBeCloseTo(rested, 9);
+    // …and every distance inside each plate is what it was at rest.
+    for (const group of [PLATE_L, KNUCKLE_L]) {
+      for (const a of group) {
+        for (const b of group) {
+          expect(spanOf(pose, a, b)).toBeCloseTo(spanOf(rest, a, b), 9);
+        }
       }
     }
   });
