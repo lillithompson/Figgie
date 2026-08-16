@@ -765,12 +765,23 @@ export function sketchInk(
 }
 
 /**
- * The SOLID body masses: chest rectangle, pelvis shield and head oval as
- * convex polygons, pushed {@link FILL_BIAS} behind their outlines. The
- * renderer fills them depth-only, so the page still shows through the
- * figure while strokes passing genuinely behind a mass — a far arm on a
- * turned figure — are hidden, the way a drawn solid hides what's behind
- * it. Each shape's OWN strokes sit in front of its fill by construction.
+ * The SOLID body masses: chest rectangle, pelvis shield, head oval and the
+ * limb joints' circles as convex polygons, pushed {@link FILL_BIAS} behind
+ * their outlines. The renderer fills them depth-only, so the page still
+ * shows through the figure while strokes passing genuinely behind a mass —
+ * a far arm on a turned figure — are hidden, the way a drawn solid hides
+ * what's behind it. Each shape's OWN strokes sit in front of its fill by
+ * construction.
+ *
+ * A JOINT CIRCLE is a solid too. It is drawn as a ball at the end of a
+ * bone, and a ball is not see-through: leaving it hollow let the far arm's
+ * stroke run straight across an elbow, and a limb pointing away from the
+ * viewer poked out through the very joint it hangs from. The disc fills to
+ * the circle's guide radius — the centre line of the pen's band, not its
+ * outer edge — so the cut always lands UNDER the drawn ring rather than
+ * beside it. The fingertip rings are left hollow: they are end-effector
+ * marks rather than drawn joints, and at 0.45 units they would clip more
+ * than they cover.
  */
 export function sketchFills(
   pose: FiggiePose,
@@ -794,6 +805,10 @@ export function sketchFills(
         headC.x, headC.y, headC.z - FILL_BIAS, HEAD_RX - 0.4, HEAD_RY - 0.4, 20,
       ),
     },
+    ...JOINT_CIRCLES.map(([joint, r]) => {
+      const c = J(joint);
+      return { id: `joint-${joint}`, points: ovalGuide(c.x, c.y, c.z - FILL_BIAS, r, r, 12) };
+    }),
   ];
 }
 

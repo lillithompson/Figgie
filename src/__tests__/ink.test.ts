@@ -400,12 +400,17 @@ describe('the batch and the accent', () => {
     expect(batch.indices.length).toBe(spans * 6);
   });
 
-  it('fills the chest, pelvis and head as solid masses WITH depth', () => {
+  it('fills the chest, pelvis, head and joint circles as solid masses WITH depth', () => {
     const fills = sketchFills(defaultPose(), 0);
     expect(fills.map((f) => f.id)).toEqual([
       // One solid per hand — the palm is skinned, not split in two.
       'chest', 'pelvis', 'handL', 'handR',
       'footL', 'footR', 'toeL', 'toeR', 'head',
+      // A drawn joint is a ball on the end of a bone, and a ball is not
+      // see-through.
+      'joint-shoulderL', 'joint-shoulderR', 'joint-elbowL', 'joint-elbowR',
+      'joint-wristL', 'joint-wristR', 'joint-kneeL', 'joint-kneeR',
+      'joint-ankleL', 'joint-ankleR',
     ]);
     // Each solid sits BEHIND its own outline (the strokes at that plane
     // must win the depth test), and everything is a real polygon.
@@ -610,6 +615,38 @@ describe('the vector bake', () => {
       runs.reduce((n, r) => n + r.points.length, 0);
     expect(span(front)).toBeGreaterThan(0);
     expect(span(behind)).toBeLessThan(span(front));
+  });
+
+  it('hides what passes behind a joint circle, and never its own bones', () => {
+    // A joint is drawn as a ball on the end of a bone. Hollow, an arm
+    // reaching away from the viewer ran straight out through the shoulder
+    // it hangs from; solid, the ring covers it like every other mass.
+    const rest = defaultPose();
+    // The forearm swung straight back: the elbow now sits directly behind
+    // the shoulder's ball, a hand's length further from the viewer.
+    const back: FiggiePose = {
+      ...rest,
+      angles: { elbowL: quatFromAxisAngle(0, 1, 0, -Math.PI / 2) },
+    };
+    const span = (runs: ReturnType<typeof inkVector>, id: string) =>
+      runs.filter((p) => p.id === id).reduce((n, r) => n + r.points.length, 0);
+    // The elbow's ring is gone under the shoulder's — hollow, it drew
+    // straight through it. (Only the joint solids can do this: the chest
+    // covers a couple of its samples and nothing else reaches it.)
+    expect(span(polys, 'joint-elbowL')).toBeGreaterThan(0);
+    expect(span(inkVector(back, 0), 'joint-elbowL')).toBe(0);
+    // The shoulder's own circle is untouched: every mass sits behind its
+    // own outline, joints included.
+    expect(span(inkVector(back, 0), 'joint-shoulderL'))
+      .toBe(span(polys, 'joint-shoulderL'));
+    // And nothing eats the bones that MEET a joint at rest — they end at
+    // the circle's centre, in front of the disc, so every limb still draws
+    // its full length.
+    for (const id of ['armL0', 'armL1', 'legL0', 'legL1']) {
+      expect(span(polys, id)).toBe(
+        sketchInk(rest, 0).find((s) => s.id === id)!.points.length * 2,
+      );
+    }
   });
 
   it('never lets a shape erase its own outline', () => {
