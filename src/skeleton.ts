@@ -258,11 +258,16 @@ export interface DragTarget {
   kind: DragKind;
   /** ik2 only: the two posable joints the solve writes (chain root first). */
   chain?: [JointId, JointId];
-  /** FINE detail (fingers, the heel and ball of the foot): offered only when the
+  /** FINE detail (fingers, the heel of the foot): offered only when the
    *  host says the figure is big enough on screen to pick one of these
    *  from its neighbours — see {@link HAND_SPAN}; hit tests skip fine
    *  targets otherwise, and no knob is drawn for them. */
   fine?: true;
+  /** Grabbable at any size, but DRAWS NO BEAD — for a joint that sits so
+   *  close to its neighbours that a third knob between theirs would read
+   *  as one blob rather than three handles. The flesh it lifts is its own
+   *  affordance. */
+  noKnob?: true;
 }
 
 export const DRAG_TARGETS: readonly DragTarget[] = [
@@ -291,17 +296,22 @@ export const DRAG_TARGETS: readonly DragTarget[] = [
   // move the ankle's own IK drag can't make, since that carries the leg.
   // The BALL swings about the heel, lifting the front of the foot.
   //
-  // Both FINE, like the fingers, because the foot points AT the viewer:
-  // face-on the four joints project two to four rig units apart, well
-  // inside each other's knobs, so at ordinary sizes a heel or ball target
-  // would only steal presses meant for the ankle and the toe — the two
-  // ENDS, which are what a press near a foot means when the figure is
-  // small. Once the host says the figure reads big they separate on
-  // screen, and every joint of the foot answers for itself.
+  // The HEEL is FINE, like the fingers: it sits directly under the ankle
+  // (the L's upright is the shortest bone in the figure), so at ordinary
+  // sizes it can only steal presses meant for the ankle. It separates
+  // once the host says the figure reads big.
+  //
+  // The BALL is not. Lifting the front of the foot is an everyday pose —
+  // a foot flat, on tiptoe, or rolling between the two — and gating it on
+  // zoom meant the one bend the foot is FOR could only be reached by
+  // pushing in first, while the toe beside it answered at any size. It
+  // draws no bead, though: the foot's three joints project two to four
+  // rig units apart face-on, so a third knob between the ankle's and the
+  // toe's would merge with both. The foot is the affordance.
   { joint: 'heelL', kind: 'fk', fine: true },
   { joint: 'heelR', kind: 'fk', fine: true },
-  { joint: 'ballL', kind: 'fk', fine: true },
-  { joint: 'ballR', kind: 'fk', fine: true },
+  { joint: 'ballL', kind: 'fk', noKnob: true },
+  { joint: 'ballR', kind: 'fk', noKnob: true },
   // Every posable finger segment, zoom-gated.
   ...SKELETON.filter((j) => j.posable && FINGER_JOINT_IDS.has(j.id))
     .map((j): DragTarget => ({ joint: j.id, kind: 'fk', fine: true })),

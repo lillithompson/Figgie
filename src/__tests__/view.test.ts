@@ -218,17 +218,27 @@ describe('hitTest', () => {
     expect(dragTargetFor('toeL')!.kind).toBe('ik2');
   });
 
-  it('keeps the foot’s inner joints behind the gate', () => {
-    // The foot points at the viewer, so its four joints project only a few
-    // rig units apart — inside each other's knobs. Offering the middle two
-    // at that size would just steal presses; without the gate a press there
-    // still means one of the two ENDS of the foot.
-    for (const inner of ['heelL', 'ballL'] as const) {
-      const s = screenOf(inner);
-      const joint = hitTest(defaultPose(), 0, fit, s.x, s.y)?.target.joint;
-      expect(joint).not.toBe(inner);
-      expect(['ankleL', 'toeL']).toContain(joint);
-    }
+  it('keeps the HEEL behind the gate — it sits right under the ankle', () => {
+    // The L's upright is the shortest bone in the figure, so face-on the
+    // heel projects a couple of rig units below the ankle, inside its
+    // knob. Offered at that size it would only steal the ankle's presses.
+    const s = screenOf('heelL');
+    const joint = hitTest(defaultPose(), 0, fit, s.x, s.y)?.target.joint;
+    expect(joint).not.toBe('heelL');
+    expect(['ankleL', 'toeL', 'ballL']).toContain(joint);
+    // Zoomed in, it answers for itself.
+    expect(hitTest(defaultPose(), 0, fit, s.x, s.y, true)?.target.joint).toBe('heelL');
+  });
+
+  it('grabs the BALL from any distance, like the toe beside it', () => {
+    // Lifting the front of the foot is an everyday pose — flat, tiptoe, or
+    // rolling between them — so it cannot be the one bend that costs a
+    // zoom first while the toe next to it answers at any size.
+    const s = screenOf('ballL');
+    expect(hitTest(defaultPose(), 0, fit, s.x, s.y)?.target.joint).toBe('ballL');
+    expect(hitTest(defaultPose(), 0, fit, s.x, s.y, true)?.target.joint).toBe('ballL');
+    // …and it bends the foot at the ball rather than carrying the leg.
+    expect(hitTest(defaultPose(), 0, fit, s.x, s.y)?.target.kind).toBe('fk');
   });
 
   it('draws no knob inside the foot, as for the fingers', () => {
@@ -237,6 +247,8 @@ describe('hitTest', () => {
     expect(joints).toContain('ankleL');
     expect(joints).toContain('toeL');
     expect(joints).not.toContain('heelL');
+    // The ball is grabbable at any size but still beadless: a third knob
+    // between the ankle's and the toe's would merge with both.
     expect(joints).not.toContain('ballL');
   });
 
