@@ -318,19 +318,97 @@ export interface SpineShape {
  * a slider will pile onto the first instead of replacing it.
  */
 export function shapeSpine(pose: FiggiePose, shape: SpineShape): FiggiePose {
-  const unit = (v: number) => Math.max(-1, Math.min(1, Number.isFinite(v) ? v : 0));
+  return shapeColumn(pose, SPINE_COLUMN, [
+    // Lean's range is NEGATED so the slider reads as it looks: pushed one
+    // way, the figure tips that way on screen.
+    [[0, 0, 1], -SPINE_RANGE.lean, shape.lean],
+    [[1, 0, 0], SPINE_RANGE.bend, shape.bend],
+    [[0, 1, 0], SPINE_RANGE.twist, shape.twist],
+  ]);
+}
+
+/** How far the head sliders can carry it, radians end to end (shared out
+ *  along {@link HEAD_COLUMN}). A nod reaches chin-to-chest and a good way
+ *  back; a shake turns the face nearly square to the side, which is about
+ *  as far as a real neck goes before the shoulders have to follow. */
+export const HEAD_RANGE = { nod: 1.1, shake: 1.4 };
+
+/** The column the head sliders turn, and each joint's SHARE of the total
+ *  (summing to 1). The HEAD joint is the ball's own center, so turning it
+ *  swivels the face in place — that is where most of a nod or a shake
+ *  belongs. The NECK takes the rest: for a nod its riser swings the whole
+ *  ball around, so the head really moves rather than rolling its eyes in
+ *  place. (A shake turns the riser about its own length, so there the split
+ *  simply spreads one turn over two joints and the ball stays put — which
+ *  is right: a head shakes where it stands.) */
+export const HEAD_COLUMN: ReadonlyArray<[JointId, number]> = [
+  ['neck', 0.3], ['head', 0.7],
+];
+
+export interface HeadShape {
+  /** Chin down (+) or face up (−), −1..1. */
+  nod: number;
+  /** Turn the face to one side, −1..1. */
+  shake: number;
+}
+
+/**
+ * Shape the head: nod and shake together, since both write the SAME two
+ * joints. Each is −1..1 with 0 meaning "as the pose already stood", split
+ * along {@link HEAD_COLUMN} so the neck carries some of the turn.
+ *
+ * The spine's own sliders reach up through the neck and head (they are the
+ * last two links of {@link SPINE_COLUMN}, so a deep bend has the figure
+ * looking at its own feet). These two are the head ALONE — the same joints,
+ * a shorter column — so a nod tips the face without the body following.
+ *
+ * ADDS its turn to whatever the joints already hold, in the figure's own
+ * frame, exactly as {@link shapeSpine} does: nod an already-shaken head and
+ * the chin drops from where the face was pointing. Which makes it absolute
+ * only with respect to the pose it is HANDED — a host must keep feeding it
+ * one fixed base for as long as a set of slider positions is live.
+ */
+export function shapeHead(pose: FiggiePose, shape: HeadShape): FiggiePose {
+  return shapeColumn(pose, HEAD_COLUMN, [
+    [[1, 0, 0], HEAD_RANGE.nod, shape.nod],
+    [[0, 1, 0], HEAD_RANGE.shake, shape.shake],
+  ]);
+}
+
+/**
+ * The one thing the spine and the head sliders both do: add a turn to a
+ * CHAIN of joints, each taking its own share, so the run of bones curves
+ * rather than hinging at one place.
+ *
+ * `turns` are [axis, radians end to end, −1..1 value] applied innermost
+ * first — the fixed composition order that makes a set of slider positions
+ * describe one posture however they were reached. Each value is clamped to
+ * −1..1 first, so a caller cannot fold a joint through itself with a stray
+ * number (nor with a NaN, which would poison the whole quaternion).
+ *
+ * Every joint's share is ADDED to what it already carries (`held · shaped`):
+ * what the joint holds turns first, then these turn it further about the
+ * axes it now points along. A joint left at an identity rotation is DELETED
+ * rather than stored, so sliders at rest leave a pose byte-identical to one
+ * that was never shaped — which is what keeps a "nothing changed" commit
+ * from building an undo entry.
+ */
+function shapeColumn(
+  pose: FiggiePose,
+  column: ReadonlyArray<[JointId, number]>,
+  turns: ReadonlyArray<[[number, number, number], number, number]>,
+): FiggiePose {
   const angles: Angles = { ...pose.angles };
-  for (const [id, share] of SPINE_COLUMN) {
-    const part = (range: number, v: number) => range * unit(v) * share;
-    // Negated so the slider reads as it looks: pushed left, the figure
-    // tips to the viewer's left.
-    const lean = quatFromAxisAngle(0, 0, 1, -part(SPINE_RANGE.lean, shape.lean));
-    const bend = quatFromAxisAngle(1, 0, 0, part(SPINE_RANGE.bend, shape.bend));
-    const twist = quatFromAxisAngle(0, 1, 0, part(SPINE_RANGE.twist, shape.twist));
-    const shaped: Quat = quatNormalize(quatMul(twist, quatMul(bend, lean)));
+  for (const [id, share] of column) {
+    let shaped: Quat = QUAT_IDENTITY;
+    for (const [[ax, ay, az], range, value] of turns) {
+      shaped = quatMul(
+        quatFromAxisAngle(ax, ay, az, range * centeredValue(value) * share),
+        shaped,
+      );
+    }
+    shaped = quatNormalize(shaped);
     const held = pose.angles[id];
-    // `held · shaped`: what the joint already carries turns first, then the
-    // sliders turn it further about the axes it now points along.
     const q = held ? quatNormalize(quatMul(held, shaped)) : shaped;
     if (Math.abs(q[3]) >= 1 - 1e-9) delete angles[id];
     else angles[id] = q;

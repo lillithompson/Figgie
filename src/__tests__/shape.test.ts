@@ -1,13 +1,14 @@
 /**
  * The posture shapers a host drives from one slider each: curl a hand into
- * a fist, point or flatten a foot, bend / twist / lean the spine. All are
- * ABSOLUTE (idempotent), disjoint in the joints they own, and leave a pose
- * untouched at rest.
+ * a fist, point or flatten a foot, bend / twist / lean the spine, nod or
+ * shake the head. All are ABSOLUTE (idempotent), disjoint in the joints
+ * they own — bar the head and the spine, which share a column and so ADD
+ * rather than overwrite — and leave a pose untouched at rest.
  */
 
 import {
-  FINGER_COLUMN, FIST_RANGE, SPINE_COLUMN, SPINE_RANGE, curlHand, flexFoot, rotateRig, shapeSpine,
-  centered, twistAnkle, twistWrist,
+  FINGER_COLUMN, FIST_RANGE, HEAD_COLUMN, HEAD_RANGE, SPINE_COLUMN, SPINE_RANGE, curlHand,
+  flexFoot, rotateRig, shapeHead, shapeSpine, centered, twistAnkle, twistWrist,
 } from '../shape';
 import { defaultPose, poseEquals, resolveDrag, solveWorld } from '../pose';
 import { quatRotate } from '../quat';
@@ -258,6 +259,100 @@ describe('shapeSpine', () => {
       expect(shaped.angles[id as keyof typeof shaped.angles]).toEqual(
         posed.angles[id as keyof typeof posed.angles],
       );
+    }
+  });
+});
+
+describe('shapeHead', () => {
+  const level = { nod: 0, shake: 0 };
+  /** Which way the face points, in the world. */
+  const gaze = (pose: ReturnType<typeof defaultPose>) => {
+    const [dx, dy, dz] = quatRotate(solveWorld(pose).head.rot, 0, 0, 1);
+    return { dx, dy, dz };
+  };
+
+  it('is exactly level at center — the pose is untouched', () => {
+    const posed = shapeSpine(curlHand(defaultPose(), 'R', 1), { bend: 0.4, twist: 0, lean: 0 });
+    expect(poseEquals(shapeHead(posed, level), posed)).toBe(true);
+    expect(shapeHead(defaultPose(), level).angles).toEqual({});
+  });
+
+  it('nods the face down and back up', () => {
+    const down = gaze(shapeHead(defaultPose(), { ...level, nod: 1 }));
+    const up = gaze(shapeHead(defaultPose(), { ...level, nod: -1 }));
+    const straight = gaze(defaultPose());
+    expect(down.dy).toBeLessThan(straight.dy - 0.5);   // chin toward the chest
+    expect(up.dy).toBeGreaterThan(straight.dy + 0.5);  // and the face to the sky
+    // A nod, not a shake: the face stays on the center line either way.
+    expect(down.dx).toBeCloseTo(0, 6);
+    expect(up.dx).toBeCloseTo(0, 6);
+  });
+
+  it('shakes the face side to side, the way the slider reads', () => {
+    // Screen right is +x (view.ts maps px straight through), and the spine's
+    // own Twist turns that way for a positive value — the head has to agree
+    // with it or the two bars would disagree about which end is "right".
+    const right = gaze(shapeHead(defaultPose(), { ...level, shake: 1 }));
+    const left = gaze(shapeHead(defaultPose(), { ...level, shake: -1 }));
+    expect(right.dx).toBeGreaterThan(0.5);
+    expect(left.dx).toBeLessThan(-0.5);
+    // …and the face stays level while it turns.
+    expect(right.dy).toBeCloseTo(0, 6);
+  });
+
+  it('turns the head ALONE — the shoulders and the spine stay put', () => {
+    // What separates it from the Spine bar, whose bend carries the whole
+    // column round and takes the head along at the end of it.
+    const w0 = solveWorld(defaultPose());
+    const w = solveWorld(shapeHead(defaultPose(), { nod: 1, shake: 1 }));
+    expect(w.shoulderL.x).toBeCloseTo(w0.shoulderL.x, 6);
+    expect(w.shoulderL.z).toBeCloseTo(w0.shoulderL.z, 6);
+    expect(w.chest.y).toBeCloseTo(w0.chest.y, 6);
+    expect(Object.keys(shapeHead(defaultPose(), { nod: 1, shake: 1 }).angles).sort())
+      .toEqual(['head', 'neck']);
+  });
+
+  it('shares the turn so the neck carries the ball, not just the face', () => {
+    // All of a nod on `head` would roll the eyes inside a ball that never
+    // moved. The neck's share swings the ball itself around on its riser,
+    // which is what a nod actually looks like.
+    const w0 = solveWorld(defaultPose());
+    const nodded = shapeHead(defaultPose(), { ...level, nod: 1 });
+    expect(solveWorld(nodded).head.z).toBeGreaterThan(w0.head.z + 1);
+    expect(HEAD_COLUMN.map(([, share]) => share).reduce((a, b) => a + b, 0)).toBeCloseTo(1, 9);
+    const angleOf = (id: JointId) =>
+      2 * Math.acos(Math.min(1, Math.abs(nodded.angles[id]![3])));
+    expect(angleOf('head')).toBeGreaterThan(angleOf('neck'));
+    // The total is the full range the slider promises.
+    expect(angleOf('head') + angleOf('neck')).toBeCloseTo(HEAD_RANGE.nod, 6);
+  });
+
+  it('adds to a head the spine already turned, instead of straightening it', () => {
+    // The two bars write the SAME joints, so the head's sliders must leave a
+    // stoop where it stood — the bug the spine's own sliders had.
+    const stooped = shapeSpine(defaultPose(), { bend: 1, twist: 0, lean: 0 });
+    const before = solveWorld(stooped);
+    const after = solveWorld(shapeHead(stooped, { ...level, nod: -1 }));
+    // Still folded over: the body below the neck has not moved at all, and
+    // the head is still out in front of it (the ball rides back a little on
+    // its riser, which is the neck's own share of the nod).
+    expect(after.shoulderL.z).toBeCloseTo(before.shoulderL.z, 6);
+    expect(after.chest.z).toBeCloseTo(before.chest.z, 6);
+    expect(after.head.z).toBeGreaterThan(before.head.z * 0.8);
+    // …but the face has come up out of it. Measured on the FORWARD component:
+    // a stoop this deep has the head past straight down, where the vertical
+    // one flattens out and stops telling the two apart.
+    expect(gaze(shapeHead(stooped, { ...level, nod: -1 })).dz)
+      .toBeGreaterThan(gaze(stooped).dz + 0.5);
+    expect(gaze(shapeHead(stooped, { ...level, nod: -1 })).dy)
+      .toBeGreaterThan(gaze(stooped).dy);
+    expect(poseEquals(shapeHead(stooped, level), stooped)).toBe(true);
+  });
+
+  it('is absolute about the pose it is HANDED, off any base', () => {
+    const shape = { nod: 0.4, shake: -0.6 };
+    for (const base of [defaultPose(), curlHand(defaultPose(), 'R', 1)]) {
+      expect(poseEquals(shapeHead(base, shape), shapeHead(base, shape))).toBe(true);
     }
   });
 });
