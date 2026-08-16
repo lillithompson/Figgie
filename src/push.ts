@@ -20,6 +20,16 @@
 // bones are drawn between joints and stretch, but the flesh hung ON a
 // joint (a foot's boxes, a palm's plate) has only that joint to follow.
 //
+// AND A HAND OR A FOOT MOVES AS ONE PIECE. Those two are not drawn as
+// bones between joints — they are solids hung on single joints (the palm,
+// the foot's body, its toe box), so pieces of one moving by different
+// amounts do not stretch, they come apart: the palm floats off the wrist,
+// the fingers off the knuckle line, the foot off its heel. Every joint in
+// one takes the strongest share anywhere in it, and the stage clamp is
+// applied once for all of them — so a brush over the fingertips carries the
+// hand, and the deformation lands in the forearm, which is drawn as a bone
+// and can stretch. Posing is untouched: fingers still curl, feet still flex.
+//
 // The taper still does the work that matters. It shapes the UPSTREAM
 // transition — the shoulder near the rim moving a little where the elbow
 // at the centre moves fully, so the upper arm bends smoothly out of the
@@ -37,7 +47,9 @@
 // Pure math, no canvas — the whole brush is node-testable.
 
 import { FiggiePose, solveWorld } from './pose';
-import { JointId, MAX_REACH, SKELETON, jointBound } from './skeleton';
+import {
+  JointId, MAX_REACH, SKELETON, assemblyMembers, assemblyOf, jointBound,
+} from './skeleton';
 import { quatInv, quatRotate } from './quat';
 import { TurnLike, projectTurn, turnQuat } from './view';
 
@@ -56,6 +68,38 @@ export function pushFalloff(t: number): number {
   if (t >= 1) return 0;
   const rim = Math.exp(-PUSH_FALLOFF_K);
   return (Math.exp(-PUSH_FALLOFF_K * t * t) - rim) / (1 - rim);
+}
+
+/**
+ * How much of a displacement `(dx, dy, dz)` a point at `(cx, cy, cz)` — read
+ * from the root — can take before it leaves the ball of radius `allowed`
+ * around it: the largest `t` in [0, 1] with `|c + t·d| ≤ allowed`.
+ *
+ * The travel a RIGID assembly is allowed is the smallest of these over its
+ * joints, which is the price of moving as one piece: a hand at the edge of
+ * the stage stops there rather than sliding along it the way a lone joint
+ * does, because sliding means every joint taking a slightly different path
+ * — the exact thing that pulls a hand apart.
+ *
+ * A point already outside its ball keeps whatever room it has: the limit
+ * becomes the distance it is at, so it can travel sideways or inward but
+ * never further out. (Nothing normally is — this is for a pose loaded from
+ * a file, or one whose bounds moved under it.)
+ */
+function travelFraction(
+  cx: number, cy: number, cz: number,
+  dx: number, dy: number, dz: number,
+  allowed: number,
+): number {
+  const dd = dx * dx + dy * dy + dz * dz;
+  if (!(dd > 0)) return 1;
+  const cc = cx * cx + cy * cy + cz * cz;
+  const rr = Math.max(allowed * allowed, cc);
+  const cd = cx * dx + cy * dy + cz * dz;
+  // cc ≤ rr by construction, so the discriminant is ≥ cd² and the larger
+  // root is the one at or past 0.
+  const t = (-cd + Math.sqrt(cd * cd - dd * (cc - rr))) / dd;
+  return t < 0 ? 0 : t > 1 ? 1 : t;
 }
 
 /**
@@ -109,9 +153,31 @@ export function pushPose(
   const rootTravel = Math.hypot(pose.rootX, pose.rootY);
 
   const offsets: Partial<Record<JointId, [number, number, number]>> = { ...(pose.offsets ?? {}) };
+
+  // PASS 1 — each joint's own falloff, and the strongest one anywhere in
+  // each rigid assembly. A hand and a foot are drawn as single pieces, so
+  // the brush has to give every joint in one the SAME share: touch a
+  // fingertip and the whole hand comes, or the hand tears in half (see
+  // RIGID_ASSEMBLY_ROOTS).
+  const own = {} as Record<JointId, number>;
+  const assemblyShare = new Map<JointId, number>();
+  for (const joint of SKELETON) {
+    const id = joint.id;
+    if (!joint.parent) { own[id] = 0; continue; }
+    const j = world[id];
+    const p = projectTurn(j.x, j.y, j.z, q, root.x, root.y);
+    const w = pushFalloff(Math.hypot(p.px - viewX, p.py - viewY) / radius);
+    own[id] = w;
+    const a = assemblyOf(id);
+    if (a) assemblyShare.set(a, Math.max(assemblyShare.get(a) ?? 0, w));
+  }
+
   // Each joint's SHARE of the push. SKELETON lists parents before children,
   // so one walk both reads a parent's share and writes the child's.
   const share = {} as Record<JointId, number>;
+  // One clamped displacement per assembly, computed at its root and worn by
+  // every joint in it — the second half of moving as one piece.
+  const assemblyPush = new Map<JointId, [number, number, number]>();
   let moved = false;
   for (const joint of SKELETON) {
     const id = joint.id;
@@ -121,36 +187,67 @@ export function pushPose(
       share[id] = 0;
       continue;
     }
-    const j = world[id];
-    const p = projectTurn(j.x, j.y, j.z, q, root.x, root.y);
-    // Its own falloff, or its parent's share if that is larger: what the
-    // brush moves takes everything hanging off it along.
-    const w = Math.max(
-      pushFalloff(Math.hypot(p.px - viewX, p.py - viewY) / radius),
-      share[joint.parent],
-    );
+    const a = assemblyOf(id);
+    // Its own falloff (or its whole assembly's), and never less than its
+    // parent's share: what the brush moves takes everything hanging off it
+    // along. Inside an assembly this settles to one value — the members'
+    // parents are members, already carrying it.
+    const w = Math.max(a ? assemblyShare.get(a)! : own[id], share[joint.parent]);
     share[id] = w;
     if (w <= 0) continue;
-    // The flat push, pulled back through the turn: a shove that reads as
-    // "left" on screen is a shove to the left of the VIEWER, whatever the
-    // figure is turned to.
-    const [wx, wy, wz] = quatRotate(qi, dViewX * w, dViewY * w, 0);
-    let nx = j.x + wx;
-    let ny = j.y + wy;
-    let nz = j.z + wz;
-    const allowed = Math.max(0, MAX_REACH - rootTravel - jointBound(id));
-    const reach = Math.hypot(nx - root.x, ny - root.y, nz - root.z);
-    if (reach > allowed) {
-      // Slide along the boundary rather than stopping dead at it — the
-      // same feel the root drag has when it runs out of stage.
-      const s = allowed / reach;
-      nx = root.x + (nx - root.x) * s;
-      ny = root.y + (ny - root.y) * s;
-      nz = root.z + (nz - root.z) * s;
+    const j = world[id];
+    let ax: number;
+    let ay: number;
+    let az: number;
+    const held = a && a !== id ? assemblyPush.get(a) : undefined;
+    if (held) {
+      // A member of an assembly already clamped at its root: wear exactly
+      // what the root wore. Nothing is measured per joint here — that is
+      // what would pull the hand apart.
+      [ax, ay, az] = held;
+    } else {
+      // The flat push, pulled back through the turn: a shove that reads as
+      // "left" on screen is a shove to the left of the VIEWER, whatever the
+      // figure is turned to.
+      const [wx, wy, wz] = quatRotate(qi, dViewX * w, dViewY * w, 0);
+      const room = (of: JointId) =>
+        Math.max(0, MAX_REACH - rootTravel - jointBound(of));
+      if (a === id) {
+        // An assembly is clamped ONCE, by whichever of its joints has the
+        // least room — one travel for the whole hand or foot, so it arrives
+        // in one piece however hard the brush shoves.
+        let t = 1;
+        for (const member of assemblyMembers(a)) {
+          const m = world[member];
+          t = Math.min(t, travelFraction(
+            m.x - root.x, m.y - root.y, m.z - root.z, wx, wy, wz, room(member),
+          ));
+          if (t <= 0) break;
+        }
+        ax = wx * t;
+        ay = wy * t;
+        az = wz * t;
+        assemblyPush.set(a, [ax, ay, az]);
+      } else {
+        let nx = j.x + wx;
+        let ny = j.y + wy;
+        let nz = j.z + wz;
+        const allowed = room(id);
+        const reach = Math.hypot(nx - root.x, ny - root.y, nz - root.z);
+        if (reach > allowed) {
+          // A joint on its own slides along the boundary rather than
+          // stopping dead at it — the same feel the root drag has when it
+          // runs out of stage.
+          const s = allowed / reach;
+          nx = root.x + (nx - root.x) * s;
+          ny = root.y + (ny - root.y) * s;
+          nz = root.z + (nz - root.z) * s;
+        }
+        ax = nx - j.x;
+        ay = ny - j.y;
+        az = nz - j.z;
+      }
     }
-    const ax = nx - j.x;
-    const ay = ny - j.y;
-    const az = nz - j.z;
     if (!(Math.hypot(ax, ay, az) > 1e-9)) continue; // already against the rim
     // Stored in the joint's own posed frame, so the displacement swings
     // with the limb when the pose changes later.

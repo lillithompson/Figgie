@@ -450,6 +450,72 @@ export function jointBound(id: JointId): number {
   return (JOINT_BOUND.get(id) ?? 0) + INK_ALLOWANCE;
 }
 
+/**
+ * The joints each RIGID ASSEMBLY hangs from: a hand (everything out from
+ * the wrist) and a foot (everything down from the ankle).
+ *
+ * A limb is drawn as bones BETWEEN joints, so moving one joint and not its
+ * neighbour just makes the bone longer — a thigh stretches and the leg is
+ * still a leg. A hand and a foot are not drawn that way. They are single
+ * solids hung ON one joint each (the palm across its pin and knuckle line,
+ * the foot's body on the ball, its toe box on the toe) with the wrist's and
+ * ankle's own circles drawn at the end of the forearm and shin. Move the
+ * pieces of one differently and it does not stretch, it COMES APART: the
+ * palm floats off the wrist, the fingers off the knuckle line, the foot off
+ * its heel.
+ *
+ * So anything that deforms the figure by moving joints (the push brush)
+ * moves an assembly as ONE PIECE. What the wrist does, the whole hand does.
+ * The deformation lands where a drawn figure can absorb it — in the forearm
+ * and the shin, which stretch.
+ *
+ * Posing is untouched: these joints still take their own angles, so fingers
+ * curl and feet flex exactly as before. It is only DISPLACEMENT that has to
+ * keep the assembly together.
+ */
+export const RIGID_ASSEMBLY_ROOTS: readonly JointId[] = [
+  'wristL', 'wristR', 'ankleL', 'ankleR',
+];
+
+/** Every joint's assembly root, for the joints that are in one. Built by
+ *  walking the skeleton once — parents precede children, so membership
+ *  falls out of the parent's — which is why a finger joint added later
+ *  needs no edit here. */
+const ASSEMBLY_OF: ReadonlyMap<JointId, JointId> = (() => {
+  const m = new Map<JointId, JointId>();
+  for (const root of RIGID_ASSEMBLY_ROOTS) m.set(root, root);
+  for (const j of SKELETON) {
+    if (m.has(j.id) || !j.parent) continue;
+    const root = m.get(j.parent);
+    if (root) m.set(j.id, root);
+  }
+  return m;
+})();
+
+/** The rigid assembly `id` belongs to, named by the joint it hangs from —
+ *  or undefined for a joint that is free to move on its own. See
+ *  {@link RIGID_ASSEMBLY_ROOTS}. */
+export function assemblyOf(id: JointId): JointId | undefined {
+  return ASSEMBLY_OF.get(id);
+}
+
+const ASSEMBLY_MEMBERS: ReadonlyMap<JointId, readonly JointId[]> = (() => {
+  const m = new Map<JointId, JointId[]>();
+  for (const root of RIGID_ASSEMBLY_ROOTS) m.set(root, []);
+  for (const j of SKELETON) {
+    const root = ASSEMBLY_OF.get(j.id);
+    if (root) m.get(root)!.push(j.id);
+  }
+  return m;
+})();
+
+/** Every joint of the assembly headed by `root`, the root itself first —
+ *  what a caller moving one as a single piece has to answer for. Empty for
+ *  a joint that heads no assembly. */
+export function assemblyMembers(root: JointId): readonly JointId[] {
+  return ASSEMBLY_MEMBERS.get(root) ?? [];
+}
+
 /** The rest root's height — the figure hangs off it, and the stage is
  *  centred on it. */
 export const ROOT_REST_Y = SKELETON[0].dy;
