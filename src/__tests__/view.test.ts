@@ -159,6 +159,24 @@ describe('hitTest', () => {
     expect(hitTest(defaultPose(), 0, fit, 8, 8)).toBeNull();
   });
 
+  it('leaves the HIPS to the host — a rig is grabbed by its joints', () => {
+    // The root used to wear the biggest knob on the figure, right in the
+    // middle of it, so the commonest press on a rig picked the whole thing
+    // up instead of posing it. Nothing answers there now; the press falls
+    // through to the host, where dragging the object moves it like any
+    // other object in the scene.
+    const hips = screenOf('root');
+    for (const fine of [false, true]) {
+      const hit = hitTest(defaultPose(), 0, fit, hips.x, hips.y, fine);
+      // Whatever it lands on is a joint to POSE — never the figure itself.
+      expect(hit?.target.joint).not.toBe('root');
+      expect(hit?.target.kind).not.toBe('translate');
+    }
+    // Here it is the spine just above, so a press on the hips still does
+    // the posing thing rather than nothing at all.
+    expect(hitTest(defaultPose(), 0, fit, hips.x, hips.y)?.target.joint).toBe('spine');
+  });
+
   it('hit-tests the PROJECTED figure — a yawed shoulder is where it shows', () => {
     const yaw = 1.0;
     const s = screenOf('wristR', yaw);

@@ -10,11 +10,16 @@ import {
 } from '../pose';
 import { STAGE, Turn, projectTurn, projectYaw, turnQuat } from '../view';
 import {
-  BODY_BLOBS, BODY_CAPSULES, DRAG_TARGETS, HAND_SPAN, JOINT_IDS, MAX_REACH, RIG_HEIGHT,
-  SKELETON, dragTargetFor, jointBound, restJoint,
+  BODY_BLOBS, BODY_CAPSULES, DRAG_TARGETS, DragTarget, HAND_SPAN, JOINT_IDS, MAX_REACH,
+  RIG_HEIGHT, SKELETON, dragTargetFor, jointBound, restJoint,
 } from '../skeleton';
 
 const target = (joint: string) => dragTargetFor(joint as never)!;
+
+/** The translate drag, built by hand: no target offers it any more (a
+ *  press on the hips poses the figure, it does not pick it up), but the
+ *  pose model still answers for the behaviour a host can ask for. */
+const ROOT_DRAG: DragTarget = { joint: 'root', kind: 'translate' };
 
 /** Everything the figure draws sits inside the stage, under every turn —
  *  the promise the viewport rests on: a rig is never drawn clipped. */
@@ -355,7 +360,7 @@ describe('FK drags (rotate the bone ending at the joint)', () => {
   it('never mutates the pose it was handed', () => {
     const pose = defaultPose();
     resolveDrag(pose, target('elbowL'), 0, 0);
-    resolveDrag(pose, target('root'), 10, 10);
+    resolveDrag(pose, ROOT_DRAG, 10, 10);
     expect(pose).toEqual(defaultPose());
   });
 });
@@ -363,7 +368,7 @@ describe('FK drags (rotate the bone ending at the joint)', () => {
 describe('root drag (translate)', () => {
   it('carries the whole figure without re-posing it', () => {
     const bent = resolveDrag(defaultPose(), target('elbowL'), -20, 90);
-    const moved = resolveDrag(bent, target('root'), 8, 48);
+    const moved = resolveDrag(bent, ROOT_DRAG, 8, 48);
     const w = solveWorld(moved);
     expect(w.root.x).toBeCloseTo(8, 6);
     expect(w.root.y).toBeCloseTo(48, 6);
@@ -372,7 +377,7 @@ describe('root drag (translate)', () => {
   });
 
   it('stops at the stage edge — the figure can never be dragged out of view', () => {
-    const p = resolveDrag(defaultPose(), target('root'), 10000, -10000);
+    const p = resolveDrag(defaultPose(), ROOT_DRAG, 10000, -10000);
     const limit = rootLimit(solveWorld(defaultPose()));
     expect(limit).toBeGreaterThan(0);
     expect(p.rootX).toBeCloseTo(limit, 9);
@@ -654,7 +659,7 @@ describe('view-normal drags (yaw ≠ 0)', () => {
   it('the root tracks the finger exactly at any yaw — it IS the pivot', () => {
     // Inside the room the pose leaves (rootLimit); past that it stops at
     // the stage edge rather than carrying the figure out of view.
-    const p = resolveDrag(defaultPose(), target('root'), 9, 48, 2.4);
+    const p = resolveDrag(defaultPose(), ROOT_DRAG, 9, 48, 2.4);
     const w = solveWorld(p);
     expect(w.root.x).toBeCloseTo(9, 6);
     expect(w.root.y).toBeCloseTo(48, 6);
@@ -717,7 +722,7 @@ describe('drags under a general turn axis', () => {
   });
 
   it('the root still tracks the finger exactly — it IS the pivot', () => {
-    const p = resolveDrag(defaultPose(), target('root'), 9, 48, TURN);
+    const p = resolveDrag(defaultPose(), ROOT_DRAG, 9, 48, TURN);
     const w = solveWorld(p);
     expect(w.root.x).toBeCloseTo(9, 6);
     expect(w.root.y).toBeCloseTo(48, 6);
@@ -725,10 +730,10 @@ describe('drags under a general turn axis', () => {
 });
 
 describe('drag-target coverage', () => {
-  it('offers the AnimationMentor control set: hips, spine, chest, head, and both full limbs', () => {
+  it('offers the AnimationMentor control set: spine, chest, head, and both full limbs', () => {
     const joints = DRAG_TARGETS.map((t) => t.joint);
     for (const expected of [
-      'root', 'spine', 'chest', 'collar', 'head',
+      'spine', 'chest', 'collar', 'head',
       'shoulderL', 'elbowL', 'wristL', 'shoulderR', 'elbowR', 'wristR',
       'kneeL', 'ankleL', 'kneeR', 'ankleR',
     ]) {
@@ -736,8 +741,17 @@ describe('drag-target coverage', () => {
     }
   });
 
-  it('reaches ends by IK, mid-joints by FK, the root by translation', () => {
-    expect(target('root').kind).toBe('translate');
+  it('offers no handle on the root — the figure is grabbed by its joints', () => {
+    // The root's knob is the biggest on the figure and sits on the hips,
+    // so it took the commonest press in the middle of a rig and carried
+    // the whole thing off instead of posing it. Moving a rig around the
+    // page is what dragging the OBJECT does.
+    expect(DRAG_TARGETS.map((t) => t.joint)).not.toContain('root');
+    expect(dragTargetFor('root')).toBeUndefined();
+    expect(DRAG_TARGETS.some((t) => t.kind === 'translate')).toBe(false);
+  });
+
+  it('reaches ends by IK and mid-joints by FK', () => {
     expect(target('elbowL').kind).toBe('fk');
     expect(target('wristL').kind).toBe('ik2');
     expect(target('ankleR').kind).toBe('ik2');
@@ -765,8 +779,8 @@ describe('the figure never leaves its viewport', () => {
       expectInsideStage(pose);
     }
     // …and then dragged bodily as far as the finger goes.
-    expectInsideStage(resolveDrag(pose, target('root'), far, far));
-    expectInsideStage(resolveDrag(pose, target('root'), -far, -far));
+    expectInsideStage(resolveDrag(pose, ROOT_DRAG, far, far));
+    expectInsideStage(resolveDrag(pose, ROOT_DRAG, -far, -far));
   });
 
   it('sizes the stage by the longest chain plus the flesh on its end', () => {

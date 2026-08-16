@@ -238,10 +238,18 @@ export function findJoint(id: string): RestJoint | undefined {
 /**
  * The joints a finger can grab, and what a drag does — Pivot Animator's
  * model (drag a joint, the bone ending at it rotates about its parent and
- * the subtree follows rigidly), plus the two exceptions posing tools have
- * settled on: the ROOT translates the whole figure, and the chain ENDS
- * (wrists, ankles) solve 2-bone IK — reaching a hand toward a point is
- * what fingers do most, and plain FK there would only spin the forearm.
+ * the subtree follows rigidly), plus the exception posing tools have
+ * settled on: the chain ENDS (wrists, ankles) solve 2-bone IK — reaching a
+ * hand toward a point is what fingers do most, and plain FK there would
+ * only spin the forearm.
+ *
+ * `translate` — the figure walking bodily under the finger — is a kind a
+ * host can ask {@link resolveDrag} for, but NO TARGET OFFERS IT. It used
+ * to sit on the root, whose knob is the biggest on the figure and lands
+ * squarely on the hips, so the commonest press in the middle of a rig
+ * picked the whole thing up instead of posing it. Grabbing the figure
+ * means grabbing a JOINT; moving it around the page is what dragging the
+ * object does, like every other object in a scene.
  */
 export type DragKind = 'translate' | 'fk' | 'ik2';
 
@@ -258,7 +266,8 @@ export interface DragTarget {
 }
 
 export const DRAG_TARGETS: readonly DragTarget[] = [
-  { joint: 'root', kind: 'translate' },
+  // No root: see DragKind. The hips are the middle of the figure, and a
+  // press there is a press on the figure, not a handle to carry it by.
   { joint: 'spine', kind: 'fk' },
   { joint: 'chest', kind: 'fk' },
   { joint: 'collar', kind: 'fk' },
