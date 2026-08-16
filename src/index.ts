@@ -23,8 +23,8 @@ export {
 } from './quat';
 export type { Quat } from './quat';
 export {
-  BODY_BLOBS, BODY_CAPSULES, DRAG_TARGETS, HAND_SPAN, JOINT_IDS, MAX_REACH, RIG_HEIGHT,
-  ROOT_REST_Y, SKELETON, dragTargetFor, jointBound, knobRadius,
+  BODY_BLOBS, BODY_CAPSULES, DRAG_TARGETS, HAND_SPAN, JOINT_IDS, MAX_REACH, PUSH_ROOM,
+  RIG_HEIGHT, ROOT_REST_Y, SKELETON, STAGE_REACH, dragTargetFor, jointBound, knobRadius,
 } from './skeleton';
 export type { DragTarget, JointId } from './skeleton';
 export { posePrimitives, projectSilhouette } from './primitives';

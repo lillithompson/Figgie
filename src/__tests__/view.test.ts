@@ -5,7 +5,7 @@
  */
 
 import { defaultPose, resolveDrag, solveWorld, viewAxis } from '../pose';
-import { dragTargetFor } from '../skeleton';
+import { RIG_HEIGHT, dragTargetFor } from '../skeleton';
 import { hitTest, HIT_RADIUS_PX } from '../hit';
 import { posePrimitives, projectSilhouette } from '../primitives';
 import { STAGE, fitStage, projectTurn, projectYaw, turnQuat } from '../view';
@@ -127,7 +127,15 @@ describe('fitStage', () => {
 });
 
 describe('hitTest', () => {
-  const fit = fitStage(400, 700);
+  // A host's canvas COVERS the whole stage (that is how RigNodeLayer sizes
+  // it), so what a thumb-sized capture radius is measured against is how
+  // big the FIGURE is drawn — px per rig unit — and not the canvas's own
+  // dimensions. Sizing the fit off the stage pins that: change the stage
+  // and the canvas changes with it, exactly as a host's does, leaving a
+  // rig this size on the page reading the same.
+  const FIGURE_PX = 277; // a phone-sized mannequin, RIG_HEIGHT tall
+  const px = FIGURE_PX / RIG_HEIGHT;
+  const fit = fitStage((STAGE.maxX - STAGE.minX) * px, (STAGE.maxY - STAGE.minY) * px);
   const screenOf = (joint: string, yaw = 0) => {
     const w = solveWorld(defaultPose());
     const j = w[joint as keyof typeof w];

@@ -539,8 +539,9 @@ export function assemblyMembers(root: JointId): readonly JointId[] {
  *  centred on it. */
 export const ROOT_REST_Y = SKELETON[0].dy;
 
-/** The farthest any drawn point can EVER be from the root: the longest
- *  bone chain plus the flesh at its end. No pose can beat it. */
+/** The farthest any drawn point can EVER be from the root by POSING alone:
+ *  the longest bone chain plus the flesh at its end. No arrangement of
+ *  angles can beat it. */
 export const MAX_REACH = (() => {
   const chain = new Map<JointId, number>();
   let max = 0;
@@ -553,3 +554,31 @@ export const MAX_REACH = (() => {
   }
   return max;
 })();
+
+/**
+ * Room the stage keeps BEYOND the skeleton's own reach, rig units — where
+ * a deformation goes.
+ *
+ * {@link MAX_REACH} is a fact about bones that only rotate: at full
+ * extension a fingertip or a toe sits exactly on it, which left the push
+ * brush (the one tool that MOVES joints) nothing at all to work with
+ * there. An arm raised straight up could not be pushed any higher, a leg
+ * kicked out could not be pushed further out, and because a hand and a
+ * foot travel as one rigid piece, the single pinned fingertip froze all
+ * twenty-three joints of the hand behind it. "The push brush does not
+ * affect the fingers or feet" is what that looks like from outside.
+ *
+ * So the stage is a fifteenth of the figure's height wider than posing
+ * needs, and the brush may spend that. It is not free: the live canvas a
+ * host draws a rig into spans the whole stage (nothing may be clipped
+ * mid-stroke), so a wider stage is a bigger canvas for every rig, pushed
+ * or not — and past the renderer's backing-store cap that is paid in
+ * device resolution rather than memory. A fifteenth buys a deformation
+ * about half a brush deep and costs the live preview about a tenth of its
+ * pixel density; the committed silhouette is vector and is unaffected.
+ */
+export const PUSH_ROOM = RIG_HEIGHT * 0.15;
+
+/** The radius the STAGE frames, and the ball every displaced joint is
+ *  clamped into: the skeleton's reach plus the deformation's room. */
+export const STAGE_REACH = MAX_REACH + PUSH_ROOM;

@@ -30,6 +30,14 @@
 // hand, and the deformation lands in the forearm, which is drawn as a bone
 // and can stretch. Posing is untouched: fingers still curl, feet still flex.
 //
+// THE BRUSH ALWAYS HAS SOMEWHERE TO PUSH. Two things make sure of it. The
+// stage keeps room past the skeleton's own reach (`PUSH_ROOM`), because
+// sized to the reach exactly it left a raised hand or an extended foot —
+// the ones at the end of the longest chains — no room at all. And a piece
+// that does reach the edge SLIDES along it under the finger rather than
+// stopping dead (`assemblySlide`): one pinned fingertip must not freeze
+// the twenty-three joints of the hand behind it.
+//
 // The taper still does the work that matters. It shapes the UPSTREAM
 // transition — the shoulder near the rim moving a little where the elbow
 // at the centre moves fully, so the upper arm bends smoothly out of the
@@ -46,9 +54,9 @@
 //
 // Pure math, no canvas — the whole brush is node-testable.
 
-import { FiggiePose, solveWorld } from './pose';
+import { FiggiePose, WorldJoints, solveWorld } from './pose';
 import {
-  JointId, MAX_REACH, SKELETON, assemblyMembers, assemblyOf, jointBound,
+  JointId, SKELETON, STAGE_REACH, assemblyMembers, assemblyOf, jointBound,
 } from './skeleton';
 import { quatInv, quatRotate } from './quat';
 import { TurnLike, projectTurn, turnQuat } from './view';
@@ -75,11 +83,10 @@ export function pushFalloff(t: number): number {
  * from the root — can take before it leaves the ball of radius `allowed`
  * around it: the largest `t` in [0, 1] with `|c + t·d| ≤ allowed`.
  *
- * The travel a RIGID assembly is allowed is the smallest of these over its
- * joints, which is the price of moving as one piece: a hand at the edge of
- * the stage stops there rather than sliding along it the way a lone joint
- * does, because sliding means every joint taking a slightly different path
- * — the exact thing that pulls a hand apart.
+ * Used as the guaranteed-feasible backstop under {@link assemblySlide}:
+ * scaling ONE displacement down by the smallest such `t` over an
+ * assembly's joints keeps every one of them inside its own ball, whatever
+ * the slide arrived at.
  *
  * A point already outside its ball keeps whatever room it has: the limit
  * becomes the distance it is at, so it can travel sideways or inward but
@@ -102,6 +109,86 @@ function travelFraction(
   return t < 0 ? 0 : t > 1 ? 1 : t;
 }
 
+/** How many times {@link assemblySlide} sweeps its joints. Each sweep
+ *  seats the piece exactly against whichever ball it has left, so ONE
+ *  binding joint is answered by the first pass and the handful that can
+ *  bind at once settle in a few more. Four is well past what a hand or a
+ *  foot needs, and it is ~90 flops on a path that runs once per assembly
+ *  per dab. */
+const SLIDE_PASSES = 4;
+
+/**
+ * The ONE displacement a RIGID assembly may wear: the brush's push, pulled
+ * back inside the ball each of its joints is allowed — by SLIDING the whole
+ * piece along whichever boundary it meets, not by stopping it dead there.
+ *
+ * Sliding is what a lone joint has always done at the edge of the stage,
+ * and doing anything else to a hand or a foot is what made the brush feel
+ * broken. A rigid piece takes one travel for all of it, so the smallest
+ * travel any of its joints allows used to be the travel — and a fingertip
+ * or a toe, at the end of the longest chain in the figure, is the joint
+ * with the least room in it. One pinned fingertip stopped all twenty-three
+ * joints of the hand behind it, in every direction at once, however hard
+ * the finger shoved. That is the "push does not affect the fingers or
+ * feet" report: not a missing share, a share with nowhere to go.
+ *
+ * Each pass pulls the piece back onto the sphere of any joint that has
+ * left its ball — an alternating projection onto convex sets, which
+ * converges into the intersection of them all — so the assembly ends up
+ * gliding ALONG the stage boundary under the finger instead of freezing
+ * against it, still one rigid translation (every joint wears exactly this,
+ * so nothing inside can come apart).
+ *
+ * The travelFraction pass at the end is the guarantee, not the algorithm:
+ * whatever the sweeps reached, scaling it by the least travel every joint
+ * allows lands inside every ball, so the stage's promise holds even if the
+ * passes ran out. Well inside the intersection that factor is 1 and the
+ * slide is what it says.
+ */
+function assemblySlide(
+  members: readonly JointId[],
+  world: WorldJoints,
+  rootX: number, rootY: number, rootZ: number,
+  dx: number, dy: number, dz: number,
+  room: (id: JointId) => number,
+): [number, number, number] {
+  let ax = dx;
+  let ay = dy;
+  let az = dz;
+  for (let pass = 0; pass < SLIDE_PASSES; pass++) {
+    let slid = false;
+    for (const id of members) {
+      const j = world[id];
+      const cx = j.x - rootX;
+      const cy = j.y - rootY;
+      const cz = j.z - rootZ;
+      // A joint already outside its ball keeps the room it has, exactly as
+      // travelFraction reads it — it may slide, never bulge further out.
+      const allowed = Math.max(room(id), Math.hypot(cx, cy, cz));
+      const nx = cx + ax;
+      const ny = cy + ay;
+      const nz = cz + az;
+      const len = Math.hypot(nx, ny, nz);
+      if (!(len > allowed + 1e-9)) continue;
+      const s = allowed / len;
+      ax = nx * s - cx;
+      ay = ny * s - cy;
+      az = nz * s - cz;
+      slid = true;
+    }
+    if (!slid) break;
+  }
+  let t = 1;
+  for (const id of members) {
+    const j = world[id];
+    t = Math.min(t, travelFraction(
+      j.x - rootX, j.y - rootY, j.z - rootZ, ax, ay, az, room(id),
+    ));
+    if (t <= 0) break;
+  }
+  return [ax * t, ay * t, az * t];
+}
+
 /**
  * One dab of the push brush: every joint whose projection falls inside the
  * circle of `radius` about (`viewX`, `viewY`) is displaced by the view
@@ -120,9 +207,9 @@ function travelFraction(
  * already what dragging the body (or its root knob) does. Leaving it out
  * keeps the pivot still under the brush and keeps one invariant simple —
  * every displaced joint is clamped into the ball the STAGE guarantees to
- * frame (`MAX_REACH`, less the flesh drawn past the joint and less however
- * far the root has already wandered), so no amount of pushing can smear
- * the figure out through its own viewport. (The pelvis it carries is drawn
+ * frame (`STAGE_REACH`, less the flesh drawn past the joint and less
+ * however far the root has already wandered), so no amount of pushing can
+ * smear the figure out through its own viewport. (The pelvis it carries is drawn
  * skinned to the hips, so the legs take their share of it with them rather
  * than pulling out of a shield nailed to a joint the brush cannot move.)
  *
@@ -211,22 +298,15 @@ export function pushPose(
       // figure is turned to.
       const [wx, wy, wz] = quatRotate(qi, dViewX * w, dViewY * w, 0);
       const room = (of: JointId) =>
-        Math.max(0, MAX_REACH - rootTravel - jointBound(of));
+        Math.max(0, STAGE_REACH - rootTravel - jointBound(of));
       if (a === id) {
-        // An assembly is clamped ONCE, by whichever of its joints has the
-        // least room — one travel for the whole hand or foot, so it arrives
-        // in one piece however hard the brush shoves.
-        let t = 1;
-        for (const member of assemblyMembers(a)) {
-          const m = world[member];
-          t = Math.min(t, travelFraction(
-            m.x - root.x, m.y - root.y, m.z - root.z, wx, wy, wz, room(member),
-          ));
-          if (t <= 0) break;
-        }
-        ax = wx * t;
-        ay = wy * t;
-        az = wz * t;
+        // An assembly is clamped ONCE, for all of it — one travel for the
+        // whole hand or foot, so it arrives in one piece however hard the
+        // brush shoves — and it SLIDES along the stage rather than
+        // stopping at it, the same as a lone joint (see assemblySlide).
+        [ax, ay, az] = assemblySlide(
+          assemblyMembers(a), world, root.x, root.y, root.z, wx, wy, wz, room,
+        );
         assemblyPush.set(a, [ax, ay, az]);
       } else {
         let nx = j.x + wx;

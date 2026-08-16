@@ -11,7 +11,7 @@ import {
 import { STAGE, Turn, projectTurn, projectYaw, turnQuat } from '../view';
 import {
   BODY_BLOBS, BODY_CAPSULES, DRAG_TARGETS, DragTarget, HAND_SPAN, JOINT_IDS, MAX_REACH,
-  RIG_HEIGHT, SKELETON, dragTargetFor, jointBound, restJoint,
+  PUSH_ROOM, RIG_HEIGHT, SKELETON, STAGE_REACH, dragTargetFor, jointBound, restJoint,
 } from '../skeleton';
 
 const target = (joint: string) => dragTargetFor(joint as never)!;
@@ -786,11 +786,17 @@ describe('the figure never leaves its viewport', () => {
     expectInsideStage(resolveDrag(pose, ROOT_DRAG, -far, -far));
   });
 
-  it('sizes the stage by the longest chain plus the flesh on its end', () => {
-    // A fingertip on a fully extended arm is the farthest anything gets
-    // from the root; the stage is exactly that, squared about the root.
-    expect(STAGE.maxX - STAGE.minX).toBeCloseTo(2 * MAX_REACH, 9);
-    expect(STAGE.maxY - STAGE.minY).toBeCloseTo(2 * MAX_REACH, 9);
+  it('sizes the stage by the longest chain, the flesh on its end, and the push room', () => {
+    // A fingertip on a fully extended arm is the farthest POSING gets from
+    // the root; the stage is that, plus the room a deformation is pushed
+    // into, squared about the root. Without the second term a fully
+    // extended limb sits exactly on the wall and the push brush has
+    // nothing to spend there (see PUSH_ROOM).
+    expect(STAGE_REACH).toBeGreaterThan(MAX_REACH);
+    expect(STAGE_REACH - MAX_REACH).toBeCloseTo(PUSH_ROOM, 9);
+    expect(PUSH_ROOM).toBeCloseTo(RIG_HEIGHT * 0.15, 9);
+    expect(STAGE.maxX - STAGE.minX).toBeCloseTo(2 * STAGE_REACH, 9);
+    expect(STAGE.maxY - STAGE.minY).toBeCloseTo(2 * STAGE_REACH, 9);
     expect(poseReach(solveWorld(defaultPose()))).toBeLessThan(MAX_REACH);
     // The T-pose leaves real room to move — a stage this size is not the
     // figure's own bbox with the travel squeezed out of it.
@@ -805,6 +811,6 @@ describe('the figure never leaves its viewport', () => {
     expect(legacy.rootX).toBe(55);
     expect(legacy.rootY).toBe(-50);
     expect(sanitizePose({ v: 2, rootX: 9e9, rootY: -9e9, angles: {} }).rootX)
-      .toBe(MAX_REACH);
+      .toBe(STAGE_REACH);
   });
 });

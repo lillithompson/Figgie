@@ -14,7 +14,7 @@
 // spins the figure about the axis the viewer sees as vertical.
 
 import { Quat, quatFromAxisAngle, quatRotate } from './quat';
-import { MAX_REACH, ROOT_REST_Y } from './skeleton';
+import { ROOT_REST_Y, STAGE_REACH } from './skeleton';
 
 /** A turn of `yaw` radians about the rig-plane axis (upX, upY, 0). The
  *  axis need not be unit length (it is normalized); a degenerate axis
@@ -45,20 +45,21 @@ export function turnQuat(turn: TurnLike): Quat {
 }
 
 /** The rig-space rect the camera frames: everything the figure can ever
- *  reach, as a square about the rest root ({@link MAX_REACH}). Sized this
- *  way rather than snug around the T-pose because the stage is also the
- *  VIEWPORT the host gives the rig — a figure that reaches past it is a
- *  figure drawn clipped, and an arm raised straight up reaches well past
- *  a snug one. No pose can leave this box (bones only rotate about their
- *  parents) and no turn can either (the reach is measured in 3D, and
- *  rotating then projecting can only shorten a distance) — so long as the
- *  root stays inside what the pose's own reach leaves over, which is what
- *  `rootLimit` enforces on the one drag that moves it. */
+ *  reach, as a square about the rest root ({@link STAGE_REACH} — the
+ *  skeleton's own reach plus the room a deformation is pushed into).
+ *  Sized this way rather than snug around the T-pose because the stage is
+ *  also the VIEWPORT the host gives the rig — a figure that reaches past
+ *  it is a figure drawn clipped, and an arm raised straight up reaches
+ *  well past a snug one. No pose can leave this box (bones only rotate
+ *  about their parents) and no turn can either (the reach is measured in
+ *  3D, and rotating then projecting can only shorten a distance) — so
+ *  long as the root stays inside what the pose's own reach leaves over,
+ *  which is what `rootLimit` enforces on the one drag that moves it. */
 export const STAGE = {
-  minX: -MAX_REACH,
-  maxX: MAX_REACH,
-  minY: ROOT_REST_Y - MAX_REACH,
-  maxY: ROOT_REST_Y + MAX_REACH,
+  minX: -STAGE_REACH,
+  maxX: STAGE_REACH,
+  minY: ROOT_REST_Y - STAGE_REACH,
+  maxY: ROOT_REST_Y + STAGE_REACH,
 };
 
 /**

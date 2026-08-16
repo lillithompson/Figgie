@@ -7,7 +7,8 @@
 import { FiggiePose, defaultPose, poseEquals, sanitizePose, solveWorld } from '../pose';
 import { PUSH_FALLOFF_K, pushFalloff, pushPose } from '../push';
 import {
-  JOINT_IDS, MAX_REACH, SKELETON, assemblyMembers, assemblyOf, jointBound, restJoint,
+  JOINT_IDS, MAX_REACH, PUSH_ROOM, SKELETON, STAGE_REACH, assemblyMembers, assemblyOf,
+  jointBound, restJoint,
 } from '../skeleton';
 import { STAGE, projectTurn, turnQuat } from '../view';
 import { quatFromAxisAngle } from '../quat';
@@ -259,6 +260,71 @@ describe('a hand and a foot arrive in one piece', () => {
     expect(Math.hypot(knee[0], knee[1], knee[2])).toBeCloseTo(0, 6);
   });
 
+  it('answers at the end of an extended limb, where posing has already reached', () => {
+    // The reported deadness: a raised arm puts its fingertip at the far
+    // end of the longest chain in the figure, and with the stage sized to
+    // exactly that reach there was nothing left to push into. Every
+    // direction moved it by nothing — and because a hand travels as one
+    // piece, that one pinned fingertip froze the whole hand behind it.
+    const raised: FiggiePose = {
+      ...defaultPose(),
+      angles: { shoulderL: quatFromAxisAngle(0, 0, 1, -Math.PI / 2) },
+    };
+    const w = solveWorld(raised);
+    // The arm really is extended: the tip is past what the skeleton alone
+    // reaches, less the flesh drawn on it.
+    const tip = Math.hypot(
+      w.middleL3.x - w.root.x, w.middleL3.y - w.root.y, w.middleL3.z - w.root.z,
+    );
+    expect(tip).toBeGreaterThan(MAX_REACH - jointBound('middleL3') - 2);
+    const at = shown(raised, 'middleL3');
+    for (const [dx, dy] of [[0, 6], [6, 0], [0, -6], [-4, 4]] as const) {
+      const after = solveWorld(pushPose(raised, 0, at.px, at.py, dx, dy, 10));
+      expect(after.middleL3.x - w.middleL3.x).toBeCloseTo(dx, 6);
+      expect(after.middleL3.y - w.middleL3.y).toBeCloseTo(dy, 6);
+      // …and the wrist came too, so the hand is still a hand.
+      expect(after.wristL.x - w.wristL.x).toBeCloseTo(dx, 6);
+    }
+  });
+
+  it('slides along the stage rather than stopping dead against it', () => {
+    // Push a foot until it is out of room, then keep pushing: a lone joint
+    // has always slid along the boundary, and a rigid piece that stopped
+    // instead read as a brush that had simply switched off. It never stops
+    // answering the finger.
+    const rest = defaultPose();
+    let pose = rest;
+    let dabs = 0;
+    for (let i = 0; i < 60; i++) {
+      const at = shown(pose, 'toeL');
+      const next = pushPose(pose, 0, at.px, at.py, -3, -3, 12);
+      if (next === pose) break; // froze — the bug
+      pose = next;
+      dabs += 1;
+    }
+    expect(dabs).toBe(60);
+    const before = solveWorld(rest);
+    const after = solveWorld(pose);
+    // It travelled far past the room a straight shove had…
+    expect(Math.hypot(
+      after.toeL.x - before.toeL.x, after.toeL.y - before.toeL.y,
+    )).toBeGreaterThan(PUSH_ROOM);
+    // …in one piece, and inside the stage.
+    for (const id of FOOT_L) {
+      expect(Math.hypot(
+        after[id].x - after.root.x, after[id].y - after.root.y, after[id].z - after.root.z,
+      ) + jointBound(id)).toBeLessThanOrEqual(STAGE_REACH + 1e-6);
+    }
+    for (const a of FOOT_L) {
+      for (const b of FOOT_L) {
+        expect(Math.hypot(after[a].x - after[b].x, after[a].y - after[b].y, after[a].z - after[b].z))
+          .toBeCloseTo(Math.hypot(
+            before[a].x - before[b].x, before[a].y - before[b].y, before[a].z - before[b].z,
+          ), 9);
+      }
+    }
+  });
+
   it('keeps its shape even when the shove runs out of stage', () => {
     // The other half of the tear: the clamp is per joint, and a fingertip
     // runs out of room well before the wrist does. Clamped one joint at a
@@ -360,7 +426,7 @@ describe('the stage still frames it', () => {
     for (let i = 0; i < 40; i++) pose = pushPose(pose, 0, at.px, at.py, -20, 0, 10);
     const world = solveWorld(pose);
     const far = Math.hypot(world.wristL.x - world.root.x, world.wristL.y - world.root.y);
-    expect(far + jointBound('wristL')).toBeLessThanOrEqual(MAX_REACH - 12 + 1e-6);
+    expect(far + jointBound('wristL')).toBeLessThanOrEqual(STAGE_REACH - 12 + 1e-6);
     expect(rest.dx).toBe(0); // the walk really is the offset, not the rest
   });
 });

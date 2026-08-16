@@ -19,7 +19,7 @@
 // about z) load losslessly: a number is the same rotation written smaller.
 
 import {
-  DragTarget, JOINT_IDS, JointId, MAX_REACH, SKELETON, RIG_HEIGHT, dragTargetFor, findJoint,
+  DragTarget, JOINT_IDS, JointId, SKELETON, RIG_HEIGHT, STAGE_REACH, dragTargetFor, findJoint,
   jointBound, restJoint,
 } from './skeleton';
 import {
@@ -97,7 +97,7 @@ export function poseReach(world: WorldJoints): number {
  * the rest root, and turn-independent because the reach is 3D.
  */
 export function rootLimit(world: WorldJoints): number {
-  return Math.max(0, MAX_REACH - poseReach(world));
+  return Math.max(0, STAGE_REACH - poseReach(world));
 }
 
 /** A hard ceiling on a PARSED root offset (sanitizePose): the stage's own
@@ -105,7 +105,7 @@ export function rootLimit(world: WorldJoints): number {
  *  Deliberately looser than {@link rootLimit} — clamping a saved pose
  *  tight would move figures posed under an older, smaller stage; the next
  *  drag reels them in instead. */
-const ROOT_PARSE_LIMIT = MAX_REACH;
+const ROOT_PARSE_LIMIT = STAGE_REACH;
 
 const TAU = Math.PI * 2;
 
