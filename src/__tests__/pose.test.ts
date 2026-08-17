@@ -8,6 +8,7 @@ import {
   FiggiePose, defaultPose, normalizeAngle, poseEquals, poseReach, resolveDrag, rootLimit,
   sanitizePose, solveWorld,
 } from '../pose';
+import { pushPose } from '../push';
 import { STAGE, Turn, projectTurn, projectYaw, turnQuat } from '../view';
 import {
   BODY_BLOBS, BODY_CAPSULES, DRAG_TARGETS, DragTarget, HAND_SPAN, JOINT_IDS, MAX_REACH,
@@ -529,6 +530,93 @@ describe('IK off (ik = false): chain ends pose as plain FK', () => {
     const w = solveWorld(ik);
     expect(w.wristL.x).toBeCloseTo(tx, 4);
     expect(w.wristL.y).toBeCloseTo(ty, 4);
+  });
+});
+
+// A PUSHED rig carries per-joint displacements (FiggiePose.offsets): the
+// joint is drawn away from where its bone seats it, while its children still
+// hang off the seat. Every drag has to read the two apart — see resolveDrag's
+// `seat` — or the angle it solves for lands the joint somewhere other than
+// the finger, and re-solving from there each frame makes the joint flip
+// between two positions for as long as it is held.
+describe('drags on a PUSHED rig (joints carrying displacements)', () => {
+  /** The rig after a shove centred on `joint`, in the face-on view. */
+  const pushedAt = (joint: string, dx: number, dy: number, radius: number): FiggiePose => {
+    const w = solveWorld(defaultPose());
+    const j = w[joint as keyof typeof w];
+    const at = projectYaw(j.x, j.y, j.z, 0, w.root.x);
+    const pushed = pushPose(defaultPose(), 0, at.px, at.py, dx, dy, radius);
+    expect(pushed.offsets).toBeDefined();
+    return pushed;
+  };
+
+  const seen = (pose: FiggiePose, joint: string) => {
+    const w = solveWorld(pose);
+    const j = w[joint as keyof typeof w];
+    return projectYaw(j.x, j.y, j.z, 0, w.root.x);
+  };
+
+  it('settles where it is dragged instead of flipping between two places', () => {
+    // The exact shape of the bug: a finger held STILL, and the solve run
+    // again each frame as the gesture does. Before the seat/drawn split
+    // these two answers chased each other — this chest drag flipped ~16 rig
+    // units, a third of the figure, every frame.
+    const pushed = pushedAt('chest', 16, -4, 25);
+    const from = seen(pushed, 'chest');
+    const finger = { px: from.px, py: from.py - 5 };
+    let pose = pushed;
+    const track: Array<{ px: number; py: number }> = [];
+    for (let i = 0; i < 6; i++) {
+      pose = resolveDrag(pose, target('chest'), finger.px, finger.py, 0, false);
+      track.push(seen(pose, 'chest'));
+    }
+    for (const p of track.slice(1)) {
+      expect(p.px).toBeCloseTo(track[0].px, 6);
+      expect(p.py).toBeCloseTo(track[0].py, 6);
+    }
+  });
+
+  it('swings a displaced joint about where its bone is SEATED', () => {
+    // The pivot is the parent's undisplaced position, and the joint keeps
+    // its distance from THAT — displacement and all, carried round rigidly.
+    const pushed = pushedAt('elbowL', 0, -6, 25);
+    const seat = solveWorld({ ...pushed, offsets: undefined });
+    const pivot = projectYaw(seat.shoulderL.x, seat.shoulderL.y, seat.shoulderL.z, 0, seat.root.x);
+    const before = seen(pushed, 'elbowL');
+    const r = Math.hypot(before.px - pivot.px, before.py - pivot.py);
+    const finger = { px: pivot.px - 3, py: pivot.py - 20 };
+    const after = seen(resolveDrag(pushed, target('elbowL'), finger.px, finger.py, 0, false), 'elbowL');
+    expect(Math.hypot(after.px - pivot.px, after.py - pivot.py)).toBeCloseTo(r, 5);
+    // …and it points at the finger, in ONE solve — no walking toward it.
+    expect(Math.atan2(after.py - pivot.py, after.px - pivot.px))
+      .toBeCloseTo(Math.atan2(finger.py - pivot.py, finger.px - pivot.px), 6);
+  });
+
+  it('lands a pushed wrist exactly on a reachable target, first try', () => {
+    const pushed = pushedAt('elbowL', 0, -6, 25);
+    const shoulder = seen(pushed, 'shoulderL');
+    const want = { px: shoulder.px - 8, py: shoulder.py - 14 };
+    const after = seen(resolveDrag(pushed, target('wristL'), want.px, want.py), 'wristL');
+    expect(after.px).toBeCloseTo(want.px, 3);
+    expect(after.py).toBeCloseTo(want.py, 3);
+  });
+
+  it('keeps the deformation — a drag re-poses the rig, it does not undo the push', () => {
+    const pushed = pushedAt('elbowL', 0, -6, 25);
+    const after = resolveDrag(pushed, target('elbowL'), -30, 70, 0, false);
+    expect(after.offsets).toEqual(pushed.offsets);
+  });
+
+  it('is the same solve as ever on a rig nobody pushed', () => {
+    // No offsets, no split: seat and drawn are the same point, so every
+    // unpushed drag answers exactly as it did before this existed.
+    const w0 = solveWorld(defaultPose());
+    const plain = resolveDrag(defaultPose(), target('elbowL'), w0.shoulderL.x, w0.shoulderL.y - 13.5);
+    const empty = resolveDrag(
+      { ...defaultPose(), offsets: {} }, target('elbowL'),
+      w0.shoulderL.x, w0.shoulderL.y - 13.5,
+    );
+    expect(poseEquals(plain, empty, 1e-12)).toBe(true);
   });
 });
 

@@ -248,6 +248,23 @@ export function resolveDrag(
   }
 
   const world = solveWorld(pose);
+  // Where the bones are SEATED, as opposed to where they are drawn. On a
+  // pushed rig the two differ: an offset moves the joint it is written on
+  // and nothing else, so a child still hangs off its parent's UNDISPLACED
+  // position (see FiggiePose.offsets) — and that is the point every bone
+  // below actually pivots about. The drawn joint carries its own
+  // displacement round with it: `pos − seat(parent) = rot·(bone + offset)`,
+  // so a world rotation turns that whole vector rigidly, and the angle a
+  // drag needs is the one measured from the SEAT to the DRAWN joint.
+  //
+  // Measuring both ends on the drawn figure was the bug behind the
+  // vibration a pushed rig showed when a joint was grabbed: the solve
+  // returned an angle that lands the joint somewhere other than the finger,
+  // the next move re-solved from there, and past a certain displacement the
+  // two answers chased each other — a joint flipping between two positions
+  // for as long as it was held. An unpushed pose has no offsets and seats
+  // exactly where it draws, so it costs nothing and changes nothing there.
+  const seat = pose.offsets ? solveWorld({ ...pose, offsets: undefined }) : world;
   const q = turnQuat(turn);
   const pivotX = world.root.x;
   const pivotY = world.root.y;
@@ -259,8 +276,7 @@ export function resolveDrag(
   // not move), the same rule every mid-chain joint follows.
   if (target.kind === 'fk' || !ik) {
     const joint = restJoint(target.joint);
-    const parent = world[joint.parent!];
-    const pp = proj(parent);
+    const pp = proj(seat[joint.parent!]);
     const jp = proj(world[target.joint]);
     const r = Math.hypot(jp.px - pp.px, jp.py - pp.py);
     if (r < MIN_APPARENT_RADIUS) return pose; // edge-on — see the constant
@@ -277,11 +293,17 @@ export function resolveDrag(
   }
 
   // ik2 — chain = [mid, end]; root of the chain is the mid bone's parent.
+  //
+  // The linkage the END hangs on is a SEAT-to-SEAT one: the end swings about
+  // where the mid is seated, and the mid swings about where the chain root
+  // is seated (again, offsets are not inherited). Only the end's own
+  // position is read off the drawn figure — it is what has to land under the
+  // finger. On an unpushed rig seat and drawn are the same point and this is
+  // the solve it always was.
   const [midId, endId] = target.chain!;
   const chainRootId = restJoint(midId).parent!;
-  const S = world[chainRootId];
-  const sp = proj(S);
-  const mp = proj(world[midId]);
+  const sp = proj(seat[chainRootId]);
+  const mp = proj(seat[midId]);
   const ep = proj(world[endId]);
 
   // APPARENT lengths: what the bones measure on screen right now. A chain
@@ -321,7 +343,8 @@ export function resolveDrag(
   const midLocal = rotatedLocal(world, midId, alphaMid, nx, ny, nz);
   const mid = { ...pose, angles: { ...pose.angles, [midId]: midLocal } };
   const worldMid = solveWorld(mid);
-  const mp2 = proj(worldMid[midId]);
+  const seatMid = pose.offsets ? solveWorld({ ...mid, offsets: undefined }) : worldMid;
+  const mp2 = proj(seatMid[midId]);
   const ep2 = proj(worldMid[endId]);
   const alphaEnd = Math.atan2(ty - mp2.py, tx - mp2.px)
     - Math.atan2(ep2.py - mp2.py, ep2.px - mp2.px);
