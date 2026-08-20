@@ -27,7 +27,7 @@
 // touches the pose once the user moves one.
 
 import { FiggiePose } from './pose';
-import { FINGER_NAMES, FOOT_SPLAY, JointId, restJoint } from './skeleton';
+import { FINGER_NAMES, FingerName, FOOT_SPLAY, JointId, restJoint } from './skeleton';
 import {
   QUAT_IDENTITY, Quat, quatFromAxisAngle, quatInv, quatIsIdentity, quatMul, quatNormalize,
 } from './quat';
@@ -102,10 +102,12 @@ function setAngle(angles: Angles, id: JointId, axis: [number, number, number], a
 }
 
 /** How far a twist slider rolls a joint about its own bone, radians end to
- *  end. The WRIST turns nearly as far as a forearm really does; the ANKLE
- *  barely turns at all by comparison, which is also true of the real
- *  thing — a foot that swivelled like a hand would read as broken. */
-export const TWIST_RANGE = { wrist: 3.0, ankle: 1.2 };
+ *  end. The WRIST turns past what a forearm strictly does — a mannequin is
+ *  posed for expression, not anatomy, and the extra reach is what lets a
+ *  palm face anywhere; the ANKLE turns far less by comparison, which is
+ *  also true of the real thing — a foot that swivelled like a hand would
+ *  read as broken — but far enough now to plant toes well in or out. */
+export const TWIST_RANGE = { wrist: 4.4, ankle: 2.4 };
 
 /** The direction a bone points at rest, in its PARENT's frame — the axis a
  *  roll of that bone turns about. Taken from the skeleton rather than
@@ -214,8 +216,49 @@ export function curlHand(pose: FiggiePose, side: Side, t: number): FiggiePose {
   for (const name of FINGER_NAMES) {
     const range = name === 'thumb' ? FIST_RANGE.thumb : FIST_RANGE.finger;
     for (const [seg, share] of FINGER_COLUMN) {
-      setAngle(angles, `${name}${side}${seg}` as JointId, axis, range * share * k);
+      // Written as the joint's TWIST about the knuckle line rather than a
+      // wholesale replace, so the spread's fan turn at the base segment
+      // (a twist about the palm normal — see spreadHand) survives a
+      // re-curl: each shaper owns its own component of the same joint.
+      setTwist(angles, `${name}${side}${seg}` as JointId, axis, range * share * k);
     }
+  }
+  return { ...pose, angles };
+}
+
+/** How far the spread slider fans the fingers, radians end to end (scaled
+ *  per finger by SPREAD_SHARES). */
+export const SPREAD_RANGE = 1.0;
+
+/** Each finger's SHARE of the spread. The fan opens about the middle
+ *  finger's line — outer fingers travel farther, the way a real hand
+ *  splays — and the thumb, hinged inboard on the palm, travels farthest of
+ *  all. Signs are the LEFT hand's (+y is the thumb side of its fan); the
+ *  right mirrors through the axis flip in {@link spreadHand}. */
+const SPREAD_SHARES: Record<FingerName, number> = {
+  thumb: 1.25, index: 0.55, middle: 0.1, ring: -0.4, pinky: -0.9,
+};
+
+/**
+ * Spread one hand: `t` −1..1, 0 = the fan exactly as the rig models it,
+ * +1 fingers splayed wide, −1 squeezed together. Each finger turns about
+ * the palm's NORMAL at its base segment — the fan plane the fingers
+ * already lie in — by its own share of the range.
+ *
+ * Absolute and idempotent like the other hand shapers, and written as a
+ * TWIST about the palm normal (the swing–twist split setTwist makes), so
+ * it composes with the curl at the same joints instead of overwriting it:
+ * the curl is a swing about the knuckle line and rides through untouched —
+ * a spread fist stays a fist. Writes only that hand's finger bases.
+ */
+export function spreadHand(pose: FiggiePose, side: Side, t: number): FiggiePose {
+  const angles: Angles = { ...pose.angles };
+  // Left fingers reach along −x, so a positive turn about +z closes the
+  // fan; the right hand mirrors. Flip the axis so +t always spreads.
+  const sign = side === 'L' ? -1 : 1;
+  for (const name of FINGER_NAMES) {
+    const angle = (SPREAD_RANGE / 2) * centeredValue(t) * SPREAD_SHARES[name];
+    setTwist(angles, `${name}${side}1` as JointId, [0, 0, sign], angle);
   }
   return { ...pose, angles };
 }

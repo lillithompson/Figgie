@@ -32,8 +32,8 @@ export type { FlatCapsule, FlatEllipse, FlatPrimitive, WorldPrimitive } from './
 export { buildInkDraw, fillBatch, inkBatch, inkVector, sketchFills, sketchInk } from './ink';
 export {
   FINGER_COLUMN, FIST_RANGE, HEAD_COLUMN, HEAD_RANGE, RIG_SPIN_RANGE, SPINE_COLUMN, SPINE_RANGE,
-  TWIST_RANGE, centered, curlHand, flexFoot, rotateRig, shapeHead, shapeSpine, twistAnkle,
-  twistWrist,
+  SPREAD_RANGE, TWIST_RANGE, centered, curlHand, flexFoot, rotateRig, shapeHead, shapeSpine,
+  spreadHand, twistAnkle, twistWrist,
 } from './shape';
 export type { HeadShape, RigSpin, Side, SpineShape } from './shape';
 export type { InkBatch, InkDraw, InkFill, InkPoint, InkPoly, InkStroke } from './ink';

@@ -8,7 +8,7 @@
 
 import {
   FINGER_COLUMN, FIST_RANGE, HEAD_COLUMN, HEAD_RANGE, SPINE_COLUMN, SPINE_RANGE, curlHand,
-  flexFoot, rotateRig, shapeHead, shapeSpine, centered, twistAnkle, twistWrist,
+  flexFoot, rotateRig, shapeHead, shapeSpine, centered, spreadHand, twistAnkle, twistWrist,
 } from '../shape';
 import { defaultPose, poseEquals, resolveDrag, solveWorld } from '../pose';
 import { quatRotate } from '../quat';
@@ -402,6 +402,53 @@ describe('rotateRig', () => {
     for (const id of Object.keys(posed.angles)) {
       expect(spun.angles[id as keyof typeof spun.angles]).toEqual(posed.angles[id as keyof typeof posed.angles]);
     }
+  });
+});
+
+describe('spreadHand', () => {
+  const dist2 = (a: { x: number; y: number }, b: typeof a) => Math.hypot(a.x - b.x, a.y - b.y);
+
+  it('leaves the fan alone at centre, opens it wide at +1, squeezes at −1', () => {
+    expect(poseEquals(spreadHand(defaultPose(), 'L', 0), defaultPose())).toBe(true);
+    const w0 = solveWorld(defaultPose());
+    const wide = solveWorld(spreadHand(defaultPose(), 'L', 1));
+    const tight = solveWorld(spreadHand(defaultPose(), 'L', -1));
+    // The fan's width is the thumb-to-pinky gap at the tips.
+    const span = (w: typeof w0) => dist2(w.thumbL3, w.pinkyL3);
+    expect(span(wide)).toBeGreaterThan(span(w0) + 2);
+    expect(span(tight)).toBeLessThan(span(w0) - 2);
+  });
+
+  it('spreads both hands in mirror', () => {
+    const l = solveWorld(spreadHand(defaultPose(), 'L', 1));
+    const r = solveWorld(spreadHand(defaultPose(), 'R', 1));
+    expect(dist2(l.thumbL3, l.pinkyL3)).toBeCloseTo(dist2(r.thumbR3, r.pinkyR3), 6);
+  });
+
+  it('composes with the curl instead of overwriting it — a spread fist stays a fist', () => {
+    // Both shapers write the finger base segments; the spread is a twist
+    // about the palm normal and the curl a swing about the knuckle line,
+    // so each survives the other in either order.
+    const fist = curlHand(defaultPose(), 'L', 1);
+    const spreadFist = spreadHand(fist, 'L', 1);
+    const w = solveWorld(spreadFist);
+    const wf = solveWorld(fist);
+    // Still a fist: the middle tip stays folded back near the wrist.
+    expect(dist2(w.middleL3, w.wristL)).toBeLessThan(dist2(wf.middleL3, wf.wristL) + 1);
+    // …and the spread survives a re-curl at the same value (idempotent
+    // shapers re-derive rather than compound), in EITHER order — the curl
+    // writes its own twist component of the shared joints, not the whole
+    // rotation.
+    expect(poseEquals(spreadHand(spreadFist, 'L', 1), spreadFist)).toBe(true);
+    expect(poseEquals(curlHand(spreadFist, 'L', 1), spreadFist)).toBe(true);
+    // Back to centre restores the plain fist exactly.
+    expect(poseEquals(spreadHand(spreadFist, 'L', 0), fist)).toBe(true);
+  });
+
+  it('writes only its own hand’s finger bases', () => {
+    const posed = spreadHand(defaultPose(), 'L', 0.8);
+    const touched = Object.keys(posed.angles).sort();
+    expect(touched).toEqual(['indexL1', 'middleL1', 'pinkyL1', 'ringL1', 'thumbL1']);
   });
 });
 
