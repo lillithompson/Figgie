@@ -300,6 +300,22 @@ describe('shapeHead', () => {
     expect(right.dy).toBeCloseTo(0, 6);
   });
 
+  it('tilts the ear toward the shoulder — the axis nod and shake leave over', () => {
+    // A roll about the gaze: the head's own UP leans while the face keeps
+    // pointing exactly where it was.
+    const up = (pose: ReturnType<typeof defaultPose>) =>
+      quatRotate(solveWorld(pose).head.rot, 0, 1, 0);
+    const [rightX] = up(shapeHead(defaultPose(), { ...level, tilt: 1 }));
+    const [leftX] = up(shapeHead(defaultPose(), { ...level, tilt: -1 }));
+    expect(rightX * leftX).toBeLessThan(0);           // opposite shoulders
+    expect(Math.abs(rightX)).toBeGreaterThan(0.4);    // a real lay-over
+    const g = gaze(shapeHead(defaultPose(), { ...level, tilt: 1 }));
+    expect(g.dx).toBeCloseTo(0, 6);
+    expect(g.dy).toBeCloseTo(0, 6);
+    // …and untouched, the axis is exactly absent from the pose.
+    expect(shapeHead(defaultPose(), { ...level, tilt: 0 }).angles).toEqual({});
+  });
+
   it('turns the head ALONE — the shoulders and the spine stay put', () => {
     // What separates it from the Spine bar, whose bend carries the whole
     // column round and takes the head along at the end of it.

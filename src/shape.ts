@@ -373,8 +373,10 @@ export function shapeSpine(pose: FiggiePose, shape: SpineShape): FiggiePose {
 /** How far the head sliders can carry it, radians end to end (shared out
  *  along {@link HEAD_COLUMN}). A nod reaches chin-to-chest and a good way
  *  back; a shake turns the face nearly square to the side, which is about
- *  as far as a real neck goes before the shoulders have to follow. */
-export const HEAD_RANGE = { nod: 1.1, shake: 1.4 };
+ *  as far as a real neck goes before the shoulders have to follow; a tilt
+ *  lays the ear most of the way to the shoulder, the shortest reach of the
+ *  three because a real neck's roll is the stiffest of its turns. */
+export const HEAD_RANGE = { nod: 1.1, shake: 1.4, tilt: 0.9 };
 
 /** The column the head sliders turn, and each joint's SHARE of the total
  *  (summing to 1). The HEAD joint is the ball's own center, so turning it
@@ -393,6 +395,9 @@ export interface HeadShape {
   nod: number;
   /** Turn the face to one side, −1..1. */
   shake: number;
+  /** Ear toward shoulder (the roll about the gaze — the axis nod and shake
+   *  leave over), −1..1. Optional: older callers shape two axes. */
+  tilt?: number;
 }
 
 /**
@@ -415,6 +420,9 @@ export function shapeHead(pose: FiggiePose, shape: HeadShape): FiggiePose {
   return shapeColumn(pose, HEAD_COLUMN, [
     [[1, 0, 0], HEAD_RANGE.nod, shape.nod],
     [[0, 1, 0], HEAD_RANGE.shake, shape.shake],
+    // The third, orthogonal axis: a roll about the gaze, so it moves the
+    // face nowhere — only lays the head over.
+    [[0, 0, 1], HEAD_RANGE.tilt, shape.tilt ?? 0],
   ]);
 }
 
