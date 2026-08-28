@@ -31,7 +31,8 @@ export { posePrimitives, projectSilhouette } from './primitives';
 export type { FlatCapsule, FlatEllipse, FlatPrimitive, WorldPrimitive } from './primitives';
 export { buildInkDraw, fillBatch, inkBatch, inkVector, sketchFills, sketchInk } from './ink';
 export {
-  FINGER_COLUMN, FIST_RANGE, HEAD_COLUMN, HEAD_RANGE, RIG_SPIN_RANGE, SPINE_COLUMN, SPINE_RANGE,
+  FINGER_COLUMN, FIST_RANGE, HAND_STRAIGHT_AT, HEAD_COLUMN, HEAD_RANGE, RIG_SPIN_RANGE,
+  SPINE_COLUMN, SPINE_RANGE,
   SPREAD_RANGE, TWIST_RANGE, WRIST_BEND_RANGE, bendWrist, centered, curlHand, flexFoot, rotateRig,
   shapeHead, shapeSpine, spreadHand, twistAnkle, twistWrist,
 } from './shape';

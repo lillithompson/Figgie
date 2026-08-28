@@ -60,6 +60,14 @@ export const FIST_RANGE = { finger: 3.5, thumb: 1.5 };
 /** The palm cups a little as the fist closes. */
 const FIST_PALM = 0.26;
 
+/** Where on the curl slider the fingers stand exactly STRAIGHT — a tenth
+ *  of the way up, not at the very bottom. Below it the hand opens PAST
+ *  straight, the fingers bending back the way a relaxed open hand does;
+ *  dead flat at the end of the travel read as a stiff paddle. A host's
+ *  REST value for the slider is this number, not zero (editor-ui's
+ *  RIG_SLIDER_REST), or an untouched bar would misreport the figure. */
+export const HAND_STRAIGHT_AT = 0.1;
+
 /** The finger's posable segments and each one's SHARE of that travel
  *  (summing to 1). Every knuckle takes a comparable part of the curl —
  *  slightly more at the base, as a finger folds — so the whole finger
@@ -223,13 +231,17 @@ function centeredValue(v: number): number {
 }
 
 /**
- * Curl one hand: `t` 0 = flat (every finger straight), 1 = a closed fist.
+ * Curl one hand: `t` 1 = a closed fist, HAND_STRAIGHT_AT = every finger
+ * straight, 0 = the open hand bent a little back PAST straight.
  * The fingers fold in the rig plane — about the view-normal z at rest —
  * each segment tighter than the last, and the palm cups slightly as it
  * closes. Writes only that hand's finger segments and its palm-bend joint.
  */
 export function curlHand(pose: FiggiePose, side: Side, t: number): FiggiePose {
-  const k = clamp01(t);
+  // The travel measured from STRAIGHT rather than from the slider's floor:
+  // 1 at a closed fist, 0 at HAND_STRAIGHT_AT, and negative below it — the
+  // same turn run backwards, which bends the fingers back past straight.
+  const k = (clamp01(t) - HAND_STRAIGHT_AT) / (1 - HAND_STRAIGHT_AT);
   // Fingers hinge about the KNUCKLE LINE — the axis running across the
   // palm, which for this hand is the rig's up axis (the fan spreads in y,
   // the fingers reach along x, and the palm's flat face looks along z).

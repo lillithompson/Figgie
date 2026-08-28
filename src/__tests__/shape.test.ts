@@ -7,7 +7,8 @@
  */
 
 import {
-  FINGER_COLUMN, FIST_RANGE, HEAD_COLUMN, HEAD_RANGE, SPINE_COLUMN, SPINE_RANGE, curlHand,
+  FINGER_COLUMN, FIST_RANGE, HAND_STRAIGHT_AT, HEAD_COLUMN, HEAD_RANGE, SPINE_COLUMN,
+  SPINE_RANGE, curlHand,
   bendWrist, flexFoot, rotateRig, shapeHead, shapeSpine, centered, spreadHand, twistAnkle,
   twistWrist,
 } from '../shape';
@@ -16,9 +17,22 @@ import { quatRotate } from '../quat';
 import { JointId, dragTargetFor } from '../skeleton';
 
 describe('curlHand', () => {
-  it('is flat at 0 and a closed fist at 1', () => {
-    const flat = curlHand(defaultPose(), 'L', 0);
+  it('opens PAST straight at 0, stands straight a tenth up, and fists at 1', () => {
+    // The open end of the travel is not flat: a relaxed hand bends its
+    // fingers back a little, and dead flat read as a stiff paddle. Straight
+    // is HAND_STRAIGHT_AT, which is where a host rests the slider.
+    const flat = curlHand(defaultPose(), 'L', HAND_STRAIGHT_AT);
     expect(poseEquals(flat, defaultPose())).toBe(true);
+    const w0open = solveWorld(defaultPose());
+    const open = solveWorld(curlHand(defaultPose(), 'L', 0));
+    for (const name of ['index', 'middle', 'ring', 'pinky']) {
+      const tip = open[`${name}L3` as keyof typeof open];
+      const tip0 = w0open[`${name}L3` as keyof typeof w0open];
+      // Back the OTHER way from a curl — which lifts the tips in z — and
+      // only slightly: a hair past straight, not a bent-back claw.
+      expect(tip.z).toBeLessThan(tip0.z - 0.2);
+      expect(tip.z).toBeGreaterThan(tip0.z - 2);
+    }
     const w0 = solveWorld(defaultPose());
     const w = solveWorld(curlHand(defaultPose(), 'L', 1));
     // Every fingertip folds back toward the wrist…
