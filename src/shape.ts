@@ -173,6 +173,34 @@ export function twistWrist(pose: FiggiePose, side: Side, t: number): FiggiePose 
   return { ...pose, angles };
 }
 
+/** How far the bend slider hinges a hand at the wrist, radians end to end
+ *  — a touch past what a real wrist manages either way, on the mannequin
+ *  principle the twist range is already sized by. */
+export const WRIST_BEND_RANGE = 2.2;
+
+/**
+ * Bend one wrist: `t` −1..1, 0 = straight (the hand in line with the
+ * forearm), ±1 the hand laid back or folded forward. The hinge is the
+ * mid-palm pin, so the WHOLE hand turns — palm plate, knuckle line, all
+ * five fingers — against a forearm that stays exactly where the arm put
+ * it. Turns about the knuckle line, the same axis the fingers curl about,
+ * which is what makes it a flex and not a wave.
+ *
+ * Owns that one joint outright and reads nothing back, so it is absolute
+ * and idempotent like the other hand shapers, and disjoint from all three
+ * of them: the curl owns the knuckle line and the finger columns, the
+ * twist the wrist's roll, the spread the finger bases' roll.
+ */
+export function bendWrist(pose: FiggiePose, side: Side, t: number): FiggiePose {
+  // Each hand reaches the opposite way down its own arm, so the two want
+  // opposite senses about the rig's up axis to fold the same way — the
+  // flip curlHand makes, for the same reason.
+  const axis: [number, number, number] = [0, side === 'L' ? 1 : -1, 0];
+  const angles: Angles = { ...pose.angles };
+  setAngle(angles, `palm${side}` as JointId, axis, (WRIST_BEND_RANGE / 2) * centeredValue(t));
+  return { ...pose, angles };
+}
+
 /**
  * Twist one ankle: `t` −1..1, 0 = as the leg left it. The foot swivels
  * about the shin's line — toes turning out or in — while the leg's reach

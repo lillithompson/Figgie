@@ -18,9 +18,9 @@
  *  targets — grabbable only zoomed in. */
 export type FingerName = 'thumb' | 'index' | 'middle' | 'ring' | 'pinky';
 type FingerJointId = `${FingerName}${'L' | 'R'}${0 | 1 | 2 | 3}`;
-/** The palm's own chain: a rigid mid-palm pin (the hinge), and the
- *  posable knuckle-line joint — the effector that bends the palm in the
- *  middle, carrying the outer palm and all four fingers. */
+/** The palm's own chain: the mid-palm pin, which hinges the whole hand at
+ *  the wrist, and the knuckle-line joint — the effector that bends the palm
+ *  in the middle, carrying the outer palm and all four fingers. */
 type PalmJointId = `${'palm' | 'knuck'}${'L' | 'R'}`;
 
 export type JointId =
@@ -122,9 +122,16 @@ function fingerJoints(): RestJoint[] {
     const wrist: JointId = side === 'L' ? 'wristL' : 'wristR';
     const palm = `palm${side}` as JointId;
     const knuck = `knuck${side}` as JointId;
-    // The palm chain: rigid pin at the middle, posable knuckle line — the
-    // bend effector; rotating it hinges the outer palm at the pin.
-    out.push({ id: palm, parent: wrist, dx: mx * -PALM_MID_X, dy: 0, dz: 0, posable: false });
+    // The palm chain: the mid-palm pin — the WRIST HINGE, the one joint
+    // that turns the whole hand against the forearm (a rotation on the
+    // wrist itself swings the FOREARM, since a joint's angle turns the
+    // bone that ends at it) — and then the posable knuckle line, the bend
+    // effector; rotating that hinges the outer palm at the pin.
+    //
+    // The pin takes no DRAG target of its own: it sits behind the wrist's
+    // drawn circle, where a knob would land on top of the wrist's. It is
+    // posed from the Hands bar's Bend slider (shape.ts `bendWrist`).
+    out.push({ id: palm, parent: wrist, dx: mx * -PALM_MID_X, dy: 0, dz: 0, posable: true });
     out.push({
       id: knuck, parent: palm,
       dx: mx * -(PALM_RIM_X - PALM_MID_X), dy: 0, dz: 0, posable: true,
@@ -166,6 +173,14 @@ function fingerJoints(): RestJoint[] {
 export const FINGER_JOINT_IDS: ReadonlySet<JointId> = new Set(
   fingerJoints().map((j) => j.id),
 );
+
+/** The two wrist hinges — the mid-palm pins. Posable (the Hands bar's Bend
+ *  slider turns the whole hand there), but neither grabbable nor drawn:
+ *  the pin sits behind the wrist's own circle, where a knob would land on
+ *  top of the wrist's and a bone would be a shaft drawn inside the palm
+ *  plate. Every other posable hand joint is a finger segment and gets
+ *  both, which is why the two derived lists below have to say so. */
+export const WRIST_HINGE_IDS: ReadonlySet<JointId> = new Set<JointId>(['palmL', 'palmR']);
 
 /**
  * Rest skeleton, root first (parents always precede children, so a single
@@ -312,8 +327,9 @@ export const DRAG_TARGETS: readonly DragTarget[] = [
   { joint: 'heelR', kind: 'fk', fine: true },
   { joint: 'ballL', kind: 'fk', noKnob: true },
   { joint: 'ballR', kind: 'fk', noKnob: true },
-  // Every posable finger segment, zoom-gated.
-  ...SKELETON.filter((j) => j.posable && FINGER_JOINT_IDS.has(j.id))
+  // Every posable finger segment, zoom-gated. Not the wrist hinges: they
+  // are posed by a slider, never grabbed (see WRIST_HINGE_IDS).
+  ...SKELETON.filter((j) => j.posable && FINGER_JOINT_IDS.has(j.id) && !WRIST_HINGE_IDS.has(j.id))
     .map((j): DragTarget => ({ joint: j.id, kind: 'fk', fine: true })),
 ];
 
@@ -363,7 +379,7 @@ export const BODY_CAPSULES: readonly BodyCapsule[] = [
   { a: 'ballR', b: 'toeR', radius: 1.8 },
   // Fingers: one thin shaft per posable segment, so a curled finger
   // renders curled in the classic look too.
-  ...SKELETON.filter((j) => FINGER_JOINT_IDS.has(j.id) && j.posable)
+  ...SKELETON.filter((j) => FINGER_JOINT_IDS.has(j.id) && j.posable && !WRIST_HINGE_IDS.has(j.id))
     .map((j): BodyCapsule => ({ a: j.parent!, b: j.id, radius: 0.6 })),
 ];
 

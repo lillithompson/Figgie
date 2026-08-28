@@ -201,6 +201,21 @@ describe('the flesh on the bones', () => {
     ), 6);
   });
 
+  it('the wrist hinge poses but is neither grabbable nor drawn', () => {
+    // The mid-palm pin takes an angle (the Hands bar's Bend slider turns
+    // the whole hand there)…
+    for (const id of ['palmL', 'palmR'] as const) {
+      expect(restJoint(id).posable).toBe(true);
+      // …but no knob: it sits behind the wrist's own drawn circle, where a
+      // handle would land on top of the wrist's.
+      expect(dragTargetFor(id)).toBeUndefined();
+      // …and no shaft hung on it from the wrist: the pin is behind the
+      // wrist's circle, so a bone would be drawn inside the palm plate.
+      // (It still ANCHORS the knuckle line's shaft, which is the palm.)
+      expect(BODY_CAPSULES.some((c) => c.b === id)).toBe(false);
+    }
+  });
+
   it('finger segments are FINE drag targets — zoom-gated, knobless', () => {
     const fine = DRAG_TARGETS.filter((t) => t.fine);
     // 3 segments x 5 fingers x 2 hands, plus each hand's palm effector and

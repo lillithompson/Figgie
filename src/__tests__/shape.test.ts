@@ -8,7 +8,8 @@
 
 import {
   FINGER_COLUMN, FIST_RANGE, HEAD_COLUMN, HEAD_RANGE, SPINE_COLUMN, SPINE_RANGE, curlHand,
-  flexFoot, rotateRig, shapeHead, shapeSpine, centered, spreadHand, twistAnkle, twistWrist,
+  bendWrist, flexFoot, rotateRig, shapeHead, shapeSpine, centered, spreadHand, twistAnkle,
+  twistWrist,
 } from '../shape';
 import { defaultPose, poseEquals, resolveDrag, solveWorld } from '../pose';
 import { quatRotate } from '../quat';
@@ -465,6 +466,59 @@ describe('spreadHand', () => {
     const posed = spreadHand(defaultPose(), 'L', 0.8);
     const touched = Object.keys(posed.angles).sort();
     expect(touched).toEqual(['indexL1', 'middleL1', 'pinkyL1', 'ringL1', 'thumbL1']);
+  });
+});
+
+describe('bendWrist', () => {
+  const dist = (a: { x: number; y: number; z: number }, b: typeof a) =>
+    Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+
+  it('is straight at centre and folds the whole hand either way off it', () => {
+    expect(poseEquals(bendWrist(defaultPose(), 'L', 0), defaultPose())).toBe(true);
+    const w0 = solveWorld(defaultPose());
+    const back = solveWorld(bendWrist(defaultPose(), 'L', 1));
+    const fwd = solveWorld(bendWrist(defaultPose(), 'L', -1));
+    // The wrist itself has not budged — the forearm is untouched, the hand
+    // hinges on the end of it…
+    expect(dist(back.wristL, w0.wristL)).toBeCloseTo(0, 9);
+    // …and the whole hand goes: fingertips AND the thumb, which rides the
+    // inner palm and so sits out a knuckle-line bend entirely.
+    for (const id of ['middleL3', 'pinkyL3', 'thumbL3', 'knuckL'] as const) {
+      expect(dist(back[id], w0[id])).toBeGreaterThan(1);
+      expect(dist(fwd[id], w0[id])).toBeGreaterThan(1);
+    }
+    // Back and forward are opposite ways off straight, out of the palm's
+    // plane (the flex axis is the knuckle line, so the travel is in z).
+    expect(Math.sign(back.middleL3.z - w0.middleL3.z))
+      .toBe(-Math.sign(fwd.middleL3.z - w0.middleL3.z));
+  });
+
+  it('bends both hands the same way in the world', () => {
+    const l = solveWorld(bendWrist(defaultPose(), 'L', 1));
+    const r = solveWorld(bendWrist(defaultPose(), 'R', 1));
+    const w0 = solveWorld(defaultPose());
+    expect(l.middleL3.z - w0.middleL3.z).toBeCloseTo(r.middleR3.z - w0.middleR3.z, 6);
+  });
+
+  it('writes only its own hand’s hinge, and is absolute', () => {
+    const posed = bendWrist(defaultPose(), 'L', 0.7);
+    expect(Object.keys(posed.angles)).toEqual(['palmL']);
+    // Re-deriving at the same value repeats rather than compounds; at
+    // centre it undoes itself exactly.
+    expect(poseEquals(bendWrist(posed, 'L', 0.7), posed)).toBe(true);
+    expect(poseEquals(bendWrist(posed, 'L', 0), defaultPose())).toBe(true);
+  });
+
+  it('is disjoint from the curl, the twist and the spread', () => {
+    // Four sliders, four sets of joints: a bent hand can still make a
+    // fist, and none of the four disturbs another.
+    const bent = bendWrist(defaultPose(), 'L', 1);
+    const fist = curlHand(bent, 'L', 1);
+    expect(fist.angles.palmL).toEqual(bent.angles.palmL);
+    const rolled = twistWrist(fist, 'L', 1);
+    const splayed = spreadHand(rolled, 'L', 1);
+    expect(splayed.angles.palmL).toEqual(bent.angles.palmL);
+    expect(poseEquals(bendWrist(splayed, 'L', 1), splayed)).toBe(true);
   });
 });
 
