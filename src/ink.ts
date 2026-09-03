@@ -314,13 +314,15 @@ const CIRCLE_W = 0.5;
 const FACE_W = 0.62;
 
 /** The head oval — slightly narrower than tall, like a drawn construction
- *  ball (the classic head ball is a 10.2 sphere; the oval hugs it). */
-const HEAD_RX = 9.2;
-const HEAD_RY = 10.8;
+ *  ball (the classic head ball is an 8.67 sphere; the oval hugs it). All
+ *  four head numbers sit at 85% of what they were — the head shrank 15%
+ *  together, sketch and classic alike. */
+const HEAD_RX = 7.82;
+const HEAD_RY = 9.18;
 /** The sphere the face cross curves on. */
-const FACE_R = 9.4;
+const FACE_R = 7.99;
 /** Eye-line latitude on that sphere (the eyes sit just above center). */
-const EYE_Y = 1.2;
+const EYE_Y = 1.02;
 /** How far around the ball each face line is DRAWN, radians from the
  *  front pole. The cross marks the FACE, not a ring around the skull —
  *  restricting the drawn arc is also what lets it vanish behind the

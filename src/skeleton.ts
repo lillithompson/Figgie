@@ -202,7 +202,12 @@ export const SKELETON: readonly RestJoint[] = [
   // shoulder tilt leans a real head.
   { id: 'collar', parent: 'chest', dx: 0, dy: 5, dz: 0, posable: true },
   { id: 'neck', parent: 'collar', dx: 0, dy: 2, dz: 0, posable: true },
-  { id: 'head', parent: 'neck', dx: 0, dy: 11.8, dz: 0, posable: true },
+  // The head ball rides HIGHER than its radius alone asks, so a short run
+  // of drawn neck shows between the chest's top and the ball's underside —
+  // the head used to sit straight on the chest volume. The lift roughly
+  // cancels the ball's 15% shrink (13.3 + 8.67 ≈ the old 11.8 + 10.2), so
+  // the figure stands the same height.
+  { id: 'head', parent: 'neck', dx: 0, dy: 13.3, dz: 0, posable: true },
   { id: 'shoulderL', parent: 'collar', dx: -9.5, dy: 0, dz: 0, posable: true },
   { id: 'shoulderR', parent: 'collar', dx: 9.5, dy: 0, dz: 0, posable: true },
   { id: 'elbowL', parent: 'shoulderL', dx: -13.5, dy: 0, dz: 0, posable: true },
@@ -356,7 +361,10 @@ export const BODY_CAPSULES: readonly BodyCapsule[] = [
   // spine or chest read as a bend at all.
   { a: 'root', b: 'spine', radius: 3.6 },   // waist
   { a: 'spine', b: 'chest', radius: 4.0 },  // lower ribcage
-  { a: 'chest', b: 'neck', radius: 1.7 },   // neck
+  // The neck: on up from the chest INTO the head ball, so the raised head
+  // never floats — the shaft's top vanishes inside the ball and the bit
+  // between chest top and ball underside is the drawn neck.
+  { a: 'chest', b: 'head', radius: 1.7 },   // neck
   { a: 'collar', b: 'shoulderL', radius: 1.7 },
   { a: 'collar', b: 'shoulderR', radius: 1.7 },
   { a: 'shoulderL', b: 'elbowL', radius: 1.7 },
@@ -403,9 +411,10 @@ export interface BodyBlob {
 }
 
 export const BODY_BLOBS: readonly BodyBlob[] = [
-  { joint: 'head', ox: 0, oy: 0, oz: 0, rx: 10.2, ry: 10.2, rz: 10.2 },
-  { joint: 'head', ox: -3, oy: 1.5, oz: 9.3, rx: 0.9, ry: 1.3, rz: 0.6, tint: 'eye' },
-  { joint: 'head', ox: 3, oy: 1.5, oz: 9.3, rx: 0.9, ry: 1.3, rz: 0.6, tint: 'eye' },
+  // The head ball at 85% of its old 10.2 radius, its eyes scaled with it.
+  { joint: 'head', ox: 0, oy: 0, oz: 0, rx: 8.67, ry: 8.67, rz: 8.67 },
+  { joint: 'head', ox: -2.55, oy: 1.28, oz: 7.91, rx: 0.77, ry: 1.11, rz: 0.51, tint: 'eye' },
+  { joint: 'head', ox: 2.55, oy: 1.28, oz: 7.91, rx: 0.77, ry: 1.11, rz: 0.51, tint: 'eye' },
   // Ribcage: broad across, shallower front-to-back, hung BELOW the chest
   // joint so it fills the span up from the waist. Wider than the pelvis at
   // the shoulders, which is what gives the figure a torso shape instead of

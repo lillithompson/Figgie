@@ -43,8 +43,8 @@ function expectInsideStage(pose: FiggiePose): void {
 describe('the rest skeleton', () => {
   it('stands exactly RIG_HEIGHT tall, feet on the floor', () => {
     const w = solveWorld(defaultPose());
-    // Head ball radius 10.2 above the head joint reaches the full height.
-    expect(w.head.y + 10.2).toBeCloseTo(RIG_HEIGHT, 0);
+    // Head ball radius 8.67 above the head joint reaches the full height.
+    expect(w.head.y + 8.67).toBeCloseTo(RIG_HEIGHT, 0);
     expect(w.ankleL.y).toBeCloseTo(6, 6); // ankle sits a foot's height up
     expect(w.ankleR.y).toBeCloseTo(6, 6);
   });
@@ -736,7 +736,7 @@ describe('view-normal drags (yaw ≠ 0)', () => {
     // old planar model.
     expect(Math.abs(w.head.z)).toBeGreaterThan(2);
     expect(Math.hypot(w.head.x - w.neck.x, w.head.y - w.neck.y, w.head.z - w.neck.z))
-      .toBeCloseTo(11.8, 6);
+      .toBeCloseTo(13.3, 6);
   });
 
   it('IK reaches across the view plane on APPARENT lengths', () => {

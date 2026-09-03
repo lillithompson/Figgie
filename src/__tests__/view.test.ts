@@ -281,7 +281,9 @@ describe('projectSilhouette (the bake hosts draw from)', () => {
     const order = (yaw: number) => {
       const flat = projectSilhouette(defaultPose(), yaw);
       const eye = flat.findIndex((p) => p.kind === 'ellipse' && p.tint === 'eye');
-      const head = flat.findIndex((p) => p.kind === 'ellipse' && !p.tint && p.rx > 9);
+      // The head is the biggest untinted ball (8.67; the torso masses stop
+      // at 6.8).
+      const head = flat.findIndex((p) => p.kind === 'ellipse' && !p.tint && p.rx > 7);
       return { eye, head };
     };
     const front = order(0);
@@ -293,11 +295,11 @@ describe('projectSilhouette (the bake hosts draw from)', () => {
   it('projects spheres to circles of the same radius at any yaw', () => {
     for (const yaw of [0, 0.8, 2.2]) {
       const flat = projectSilhouette(defaultPose(), yaw);
-      const head = flat.find((p) => p.kind === 'ellipse' && !p.tint && p.rx > 9)!;
+      const head = flat.find((p) => p.kind === 'ellipse' && !p.tint && p.rx > 7)!;
       expect(head.kind).toBe('ellipse');
       if (head.kind === 'ellipse') {
-        expect(head.rx).toBeCloseTo(10.2, 5);
-        expect(head.ry).toBeCloseTo(10.2, 5);
+        expect(head.rx).toBeCloseTo(8.67, 5);
+        expect(head.ry).toBeCloseTo(8.67, 5);
       }
     }
   });
