@@ -30,16 +30,22 @@ export interface RigColors {
   eye: [number, number, number];
   /** The ink sketch's line colour. */
   ink: [number, number, number];
+  /** The opaque ground the sketch's solid masses (chest, pelvis, palms,
+   *  feet, head, joint circles) fill with — the paper the figure is drawn
+   *  on. A drawn solid is not see-through: whatever the host page has
+   *  behind a mass is hidden by it. Hosts pass their page colour. */
+  paper: [number, number, number];
 }
 
-/** Stewie's warm wood tan, darker joint bands, near-black eye dots, and a
- *  soft charcoal for the sketch's ink. */
+/** Stewie's warm wood tan, darker joint bands, near-black eye dots, a
+ *  soft charcoal for the sketch's ink, and plain white paper. */
 export const DEFAULT_COLORS: RigColors = {
   body: [0.87, 0.7, 0.48],
   knob: [0.58, 0.43, 0.27],
   knobActive: [0.22, 0.74, 0.97],
   eye: [0.14, 0.11, 0.09],
   ink: [0.16, 0.15, 0.14],
+  paper: [1, 1, 1],
 };
 
 export interface DrawInput {
@@ -231,11 +237,12 @@ export function createRenderer(gl: WebGLRenderingContext): Renderer {
       bound = null;
 
       if (input.ink) {
-        // The ink sketch: flat ribbons over depth-only body masses. The
-        // masses land in the DEPTH buffer alone — the page still shows
-        // through the figure — so strokes passing genuinely behind the
-        // chest, pelvis or head fail the test and vanish, while lines
-        // merely CROSSING (same depth) draw freely, construction-style.
+        // The ink sketch: flat ribbons over solid paper body masses. The
+        // masses paint opaque in the paper colour AND write depth, so they
+        // hide both what the page has behind the figure and the figure's
+        // own strokes passing genuinely behind the chest, pelvis or head
+        // (those fail the depth test and vanish), while lines merely
+        // CROSSING (same depth) draw freely, construction-style.
         const { fit, cssWidth, cssHeight } = input;
         gl.useProgram(inkProgram);
         gl.disableVertexAttribArray(aNormal);
@@ -257,9 +264,7 @@ export function createRenderer(gl: WebGLRenderingContext): Renderer {
           gl.uniform3fv(uInkColor, color);
           gl.drawElements(gl.TRIANGLES, batch.indices.length, gl.UNSIGNED_SHORT, 0);
         };
-        gl.colorMask(false, false, false, false);
-        drawBatch(input.ink.fills, colors.ink);
-        gl.colorMask(true, true, true, true);
+        drawBatch(input.ink.fills, colors.paper);
         drawBatch(input.ink.main, colors.ink);
         if (input.ink.accent) {
           // The grab marker always shows — feedback beats occlusion.

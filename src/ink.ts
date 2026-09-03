@@ -35,9 +35,10 @@ export interface InkStroke {
   points: InkPoint[];
 }
 
-/** A solid body mass: a convex polygon the renderer fills DEPTH-ONLY, so
- *  the page still shows through the figure while strokes passing behind
- *  the mass are occluded — a drawn shape hides what's behind it. */
+/** A solid body mass: a convex polygon the renderer fills OPAQUE in the
+ *  paper colour, depth written — so the mass hides what the page has
+ *  behind the figure, and strokes passing behind it are occluded too: a
+ *  drawn solid hides what's behind it. */
 export interface InkFill {
   id: string;
   points: Array<{ x: number; y: number; z: number }>;
@@ -51,8 +52,8 @@ export interface InkBatch {
 
 export interface InkDraw {
   main: InkBatch;
-  /** The solid masses (chest, pelvis, palms, feet, head), drawn
-   *  depth-only FIRST. */
+  /** The solid masses (chest, pelvis, palms, feet, head), drawn FIRST as
+   *  opaque paper. */
   fills: InkBatch;
   /** The active joint's marker (a bold accent ring), drawn over the ink. */
   accent: InkBatch | null;
@@ -792,11 +793,11 @@ export function sketchInk(
 /**
  * The SOLID body masses: chest rectangle, pelvis shield, head oval and the
  * limb joints' circles as convex polygons, pushed {@link FILL_BIAS} behind
- * their outlines. The renderer fills them depth-only, so the page still
- * shows through the figure while strokes passing genuinely behind a mass —
- * a far arm on a turned figure — are hidden, the way a drawn solid hides
- * what's behind it. Each shape's OWN strokes sit in front of its fill by
- * construction.
+ * their outlines. The renderer fills them opaque in the paper colour with
+ * depth written, so a mass hides what the page has behind the figure AND
+ * any stroke passing genuinely behind it — a far arm on a turned figure —
+ * the way a drawn solid hides what's behind it. Each shape's OWN strokes
+ * sit in front of its fill by construction.
  *
  * A JOINT CIRCLE is a solid too. It is drawn as a ball at the end of a
  * bone, and a ball is not see-through: leaving it hollow let the far arm's
