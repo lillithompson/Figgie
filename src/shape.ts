@@ -422,10 +422,11 @@ export const HEAD_RANGE = { nod: 1.1, shake: 1.4, tilt: 0.9 };
  *  angle swings the head bone about its parent — the NECK joint, which the
  *  skeleton parks at the TOP of the drawn neck, the ball's underside
  *  (skeleton.ts). So a nod hinges where the skull meets the neck, the ball
- *  tipping about the point it sits on. The turn used to be split with the
- *  neck joint, whose share swung the whole head around the collar — down
- *  where the neck meets the chest — which read as the body bowing, not the
- *  head nodding. */
+ *  tipping about the point it sits on. The neck joint's own angle bends
+ *  the neck at its base on the chest; that is the spine sliders' business
+ *  ({@link SPINE_COLUMN}), not the head's — a share of the head's turn
+ *  there swung the ball around the chest, which read as the body bowing,
+ *  not the head nodding. */
 export const HEAD_COLUMN: ReadonlyArray<[JointId, number]> = [
   ['head', 1],
 ];

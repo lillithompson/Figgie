@@ -27,10 +27,13 @@ export type JointId =
   | 'root'      // pelvis center — dragging it carries the whole figure
   | 'spine'     // lower-torso bend
   | 'chest'     // upper-torso bend
-  | 'neck'      // the riser the head sits on — takes its own share of a
-               // spine bend, so the curve carries through to the head
-  | 'head'      // head-ball center
   | 'collar'    // top of the chest — tilts the whole shoulder line
+  | 'neckBase'  // where the neck leaves the chest volume — rigid on the
+               // collar; the neck bone hinges here
+  | 'neck'      // top of the neck, the head ball's underside — the head's
+               // pivot; takes its own share of a spine bend, so the curve
+               // carries through to the head
+  | 'head'      // head-ball center
   | 'shoulderL' | 'shoulderR' // clavicle ends — dragging shrugs/swings
   | 'elbowL' | 'elbowR'
   | 'wristL' | 'wristR'
@@ -52,7 +55,7 @@ export interface RestJoint {
   dy: number;
   dz: number;
   /** Whether the bone ENDING at this joint takes a pose angle. A rigid
-   *  bone (neck, pelvis corners) keeps its rest direction always. */
+   *  bone (neck base, pelvis corners) keeps its rest direction always. */
   posable: boolean;
 }
 
@@ -201,17 +204,23 @@ export const SKELETON: readonly RestJoint[] = [
   // about the sternum — and carries the neck and head with it, the way a
   // shoulder tilt leans a real head.
   { id: 'collar', parent: 'chest', dx: 0, dy: 5, dz: 0, posable: true },
+  // The neck is a bone with a joint at EACH end. Its BASE sits where the
+  // neck leaves the chest volume — the sternum point of the chest dome,
+  // 2.8 above the collar (ink.ts's CHEST_BINDS) — riding the collar
+  // rigidly: it is the chest's surface, and goes where the chest goes.
+  { id: 'neckBase', parent: 'collar', dx: 0, dy: 2.8, dz: 0, posable: false },
   // The NECK joint sits at the TOP of the drawn neck — the head ball's
-  // underside — not at its base on the chest. It is the head's pivot: the
-  // head bone swings about its parent, and a nod should hinge where the
-  // skull meets the spine, not down where the neck meets the chest (which
-  // swung the whole head around the collarbones).
-  { id: 'neck', parent: 'collar', dx: 0, dy: 6.63, dz: 0, posable: true },
+  // underside. Its angle swings the neck bone about the base, so the neck
+  // bends where it meets the chest; and it is the head's pivot: the head
+  // bone swings about it, so a nod hinges where the skull meets the neck,
+  // not down at the collar (which swung the whole head around the
+  // collarbones).
+  { id: 'neck', parent: 'neckBase', dx: 0, dy: 3.83, dz: 0, posable: true },
   // The head bone is exactly the ball's radius (see BODY_BLOBS), running
-  // underside → center; with the neck riser above the collar the two still
-  // sum to 15.3, so a short run of drawn neck shows between the chest's
-  // top and the ball's underside and the figure stands the same height it
-  // did when the ball rode a 13.3 bone off a 2-unit riser.
+  // underside → center; base, neck and head bones still sum to 15.3 above
+  // the collar, so the 3.83 of drawn neck shows between the chest's top
+  // and the ball's underside and the figure stands the same height it did
+  // when the ball rode a 13.3 bone off a 2-unit riser.
   { id: 'head', parent: 'neck', dx: 0, dy: 8.67, dz: 0, posable: true },
   { id: 'shoulderL', parent: 'collar', dx: -9.5, dy: 0, dz: 0, posable: true },
   { id: 'shoulderR', parent: 'collar', dx: 9.5, dy: 0, dz: 0, posable: true },
@@ -366,10 +375,14 @@ export const BODY_CAPSULES: readonly BodyCapsule[] = [
   // spine or chest read as a bend at all.
   { a: 'root', b: 'spine', radius: 3.6 },   // waist
   { a: 'spine', b: 'chest', radius: 4.0 },  // lower ribcage
-  // The neck: on up from the chest INTO the head ball, so the raised head
-  // never floats — the shaft's top vanishes inside the ball and the bit
-  // between chest top and ball underside is the drawn neck.
-  { a: 'chest', b: 'head', radius: 1.7 },   // neck
+  // The neck, in two: a rigid shaft up through the ribcage to the chest's
+  // top, then the neck bone itself, base to the ball's underside. The
+  // second one's round cap reaches 1.7 INTO the ball, so the raised head
+  // never floats — and because it spans the neck's own two joints, a nod
+  // tips the ball on a neck that stays put, instead of leaning the whole
+  // shaft toward wherever the ball's center went.
+  { a: 'chest', b: 'neckBase', radius: 1.7 },
+  { a: 'neckBase', b: 'neck', radius: 1.7 },
   { a: 'collar', b: 'shoulderL', radius: 1.7 },
   { a: 'collar', b: 'shoulderR', radius: 1.7 },
   { a: 'shoulderL', b: 'elbowL', radius: 1.7 },

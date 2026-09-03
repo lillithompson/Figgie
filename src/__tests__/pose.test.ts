@@ -9,6 +9,7 @@ import {
   sanitizePose, solveWorld,
 } from '../pose';
 import { pushPose } from '../push';
+import { quatFromAxisAngle } from '../quat';
 import { STAGE, Turn, projectTurn, projectYaw, turnQuat } from '../view';
 import {
   BODY_BLOBS, BODY_CAPSULES, DRAG_TARGETS, DragTarget, HAND_SPAN, JOINT_IDS, MAX_REACH,
@@ -56,6 +57,46 @@ describe('the rest skeleton', () => {
     // drawn neck, not down where the neck meets the chest.
     expect(w.head.y - w.neck.y).toBeCloseTo(8.67, 6);
     expect(w.neck.y - w.collar.y).toBeCloseTo(6.63, 6);
+  });
+
+  it('gives the neck a joint at each end: a base on the chest, a top under the ball', () => {
+    const w = solveWorld(defaultPose());
+    // The base sits where the neck leaves the chest volume — the sternum
+    // point of the chest dome, 2.8 above the collar (ink.ts CHEST_BINDS)…
+    expect(w.neckBase.y - w.collar.y).toBeCloseTo(2.8, 6);
+    // …and the neck bone runs from there up to the ball's underside.
+    expect(w.neck.y - w.neckBase.y).toBeCloseTo(3.83, 6);
+    expect(w.head.y - w.neck.y).toBeCloseTo(8.67, 6);
+  });
+
+  it('the neck base is the chest surface: rigid on the collar, taking no angle', () => {
+    expect(restJoint('neckBase').posable).toBe(false);
+    // A stored angle on it is dropped, not honoured.
+    const p = sanitizePose({ angles: { neckBase: quatFromAxisAngle(1, 0, 0, 1) } });
+    expect(p.angles.neckBase).toBeUndefined();
+    // Posing it does nothing; posing the collar carries it along.
+    const w0 = solveWorld(defaultPose());
+    const tilted = defaultPose();
+    tilted.angles.collar = quatFromAxisAngle(0, 0, 1, 0.5);
+    const w = solveWorld(tilted);
+    expect(Math.hypot(w.neckBase.x - w.collar.x, w.neckBase.y - w.collar.y)).toBeCloseTo(2.8, 6);
+    expect(w.neckBase.x).not.toBeCloseTo(w0.neckBase.x, 1);
+  });
+
+  it('a neck angle bends the neck at its base on the chest, not down at the collar', () => {
+    const w0 = solveWorld(defaultPose());
+    const p = defaultPose();
+    p.angles.neck = quatFromAxisAngle(1, 0, 0, 0.5);
+    const w = solveWorld(p);
+    // Everything below the base holds still…
+    expect(w.collar).toEqual(w0.collar);
+    expect(w.neckBase).toEqual(w0.neckBase);
+    // …and the neck's top swings on the base, its bone's length away,
+    // carrying the head with it.
+    expect(Math.hypot(w.neck.x - w.neckBase.x, w.neck.y - w.neckBase.y, w.neck.z - w.neckBase.z))
+      .toBeCloseTo(3.83, 6);
+    expect(Math.abs(w.neck.z)).toBeCloseTo(3.83 * Math.sin(0.5), 6);
+    expect(Math.abs(w.head.z)).toBeGreaterThan(Math.abs(w.neck.z));
   });
 
   it('is a T-pose wider than it is tall, like the Stewie reference', () => {

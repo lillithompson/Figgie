@@ -695,12 +695,14 @@ export function sketchInk(
     out.push(pen(id, [a, b], false, w));
   };
 
-  // Torso center line and the neck's short riser toward the head ball.
+  // Torso center line, and the neck: from its base on the chest's top to
+  // the ball's underside — its top joint — tucked 0.6 under the drawn
+  // oval's rim so the stroke ends inside the head rather than short of it.
   out.push(pen('spine', [J('root'), J('spine'), J('chest')], false, SPINE_W));
   const head = world.head;
   const neck = world.neck;
   const toHead = Math.hypot(head.x - neck.x, head.y - neck.y, head.z - neck.z) || 1;
-  line('neck', J('neck'), P(
+  line('neck', J('neckBase'), P(
     head.x + ((neck.x - head.x) / toHead) * (HEAD_RY - 0.6),
     head.y + ((neck.y - head.y) / toHead) * (HEAD_RY - 0.6),
     head.z + ((neck.z - head.z) / toHead) * (HEAD_RY - 0.6),

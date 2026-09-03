@@ -157,6 +157,25 @@ describe('flexFoot', () => {
 });
 
 describe('shapeSpine', () => {
+  it('bends the neck at its base on the chest: the neck’s share hinges there', () => {
+    const w = solveWorld(shapeSpine(defaultPose(), { bend: 1, twist: 0, lean: 0 }));
+    // The base rides the collar rigidly, 2.8 out along the collar's up…
+    expect(Math.hypot(w.neckBase.x - w.collar.x, w.neckBase.y - w.collar.y, w.neckBase.z - w.collar.z))
+      .toBeCloseTo(2.8, 6);
+    // …the neck bone keeps its length from that base…
+    const nx = w.neck.x - w.neckBase.x;
+    const ny = w.neck.y - w.neckBase.y;
+    const nz = w.neck.z - w.neckBase.z;
+    expect(Math.hypot(nx, ny, nz)).toBeCloseTo(3.83, 6);
+    // …and has turned on it: the neck's share of the curve is a kink at
+    // the chest's top, not at the collar inside the chest.
+    const bx = w.neckBase.x - w.collar.x;
+    const by = w.neckBase.y - w.collar.y;
+    const bz = w.neckBase.z - w.collar.z;
+    const cos = (nx * bx + ny * by + nz * bz) / (3.83 * 2.8);
+    expect(Math.acos(Math.min(1, cos))).toBeGreaterThan(0.1);
+  });
+
   const straight = { bend: 0, twist: 0, lean: 0 };
 
   it('is exactly straight at center — the pose is untouched', () => {

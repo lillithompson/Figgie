@@ -96,6 +96,36 @@ describe('pen and ink flair', () => {
     expect(maxDev).toBeLessThan(0.9);
   });
 
+  it('draws the neck between its two joints: chest top to the ball’s underside', () => {
+    const w = solveWorld(defaultPose());
+    const pts = byId(strokes, 'neck')!.points;
+    const base = projectYaw(w.neckBase.x, w.neckBase.y, w.neckBase.z, 0, w.root.x);
+    const top = projectYaw(w.neck.x, w.neck.y, w.neck.z, 0, w.root.x);
+    // Starts where the neck leaves the chest…
+    expect(Math.hypot(pts[0].x - base.px, pts[0].y - base.py)).toBeLessThan(0.6);
+    // …ends at the neck's top joint, tucked just inside the drawn oval…
+    const last = pts[pts.length - 1];
+    expect(Math.hypot(last.x - top.px, last.y - top.py)).toBeLessThan(0.7);
+    // …and is a real run of neck, not the sub-unit stub that once left the
+    // head floating over the shoulders.
+    expect(Math.hypot(last.x - pts[0].x, last.y - pts[0].y)).toBeGreaterThan(3);
+  });
+
+  it('the neck stands still when the head nods: the ball tips on top of it', () => {
+    const rest = byId(strokes, 'neck')!.points;
+    const nodded = defaultPose();
+    nodded.angles.head = quatFromAxisAngle(1, 0, 0, 0.8);
+    const ink = sketchInk(nodded, 0);
+    const neck = byId(ink, 'neck')!.points;
+    const w = solveWorld(nodded);
+    // The head really moved…
+    expect(Math.abs(w.head.z)).toBeGreaterThan(5);
+    // …but the neck stroke's ends did not.
+    for (const [a, b] of [[rest[0], neck[0]], [rest[rest.length - 1], neck[neck.length - 1]]]) {
+      expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeLessThan(0.3);
+    }
+  });
+
   it('keeps open strokes anchored — bones still meet their joints', () => {
     const w = solveWorld(defaultPose());
     const arm = byId(strokes, 'armL0')!.points;
