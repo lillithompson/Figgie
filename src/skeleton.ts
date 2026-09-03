@@ -201,13 +201,18 @@ export const SKELETON: readonly RestJoint[] = [
   // about the sternum — and carries the neck and head with it, the way a
   // shoulder tilt leans a real head.
   { id: 'collar', parent: 'chest', dx: 0, dy: 5, dz: 0, posable: true },
-  { id: 'neck', parent: 'collar', dx: 0, dy: 2, dz: 0, posable: true },
-  // The head ball rides HIGHER than its radius alone asks, so a short run
-  // of drawn neck shows between the chest's top and the ball's underside —
-  // the head used to sit straight on the chest volume. The lift roughly
-  // cancels the ball's 15% shrink (13.3 + 8.67 ≈ the old 11.8 + 10.2), so
-  // the figure stands the same height.
-  { id: 'head', parent: 'neck', dx: 0, dy: 13.3, dz: 0, posable: true },
+  // The NECK joint sits at the TOP of the drawn neck — the head ball's
+  // underside — not at its base on the chest. It is the head's pivot: the
+  // head bone swings about its parent, and a nod should hinge where the
+  // skull meets the spine, not down where the neck meets the chest (which
+  // swung the whole head around the collarbones).
+  { id: 'neck', parent: 'collar', dx: 0, dy: 6.63, dz: 0, posable: true },
+  // The head bone is exactly the ball's radius (see BODY_BLOBS), running
+  // underside → center; with the neck riser above the collar the two still
+  // sum to 15.3, so a short run of drawn neck shows between the chest's
+  // top and the ball's underside and the figure stands the same height it
+  // did when the ball rode a 13.3 bone off a 2-unit riser.
+  { id: 'head', parent: 'neck', dx: 0, dy: 8.67, dz: 0, posable: true },
   { id: 'shoulderL', parent: 'collar', dx: -9.5, dy: 0, dz: 0, posable: true },
   { id: 'shoulderR', parent: 'collar', dx: 9.5, dy: 0, dz: 0, posable: true },
   { id: 'elbowL', parent: 'shoulderL', dx: -13.5, dy: 0, dz: 0, posable: true },

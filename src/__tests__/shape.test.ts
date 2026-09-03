@@ -340,22 +340,41 @@ describe('shapeHead', () => {
     expect(w.shoulderL.z).toBeCloseTo(w0.shoulderL.z, 6);
     expect(w.chest.y).toBeCloseTo(w0.chest.y, 6);
     expect(Object.keys(shapeHead(defaultPose(), { nod: 1, shake: 1 }).angles).sort())
-      .toEqual(['head', 'neck']);
+      .toEqual(['head']);
   });
 
-  it('shares the turn so the neck carries the ball, not just the face', () => {
-    // All of a nod on `head` would roll the eyes inside a ball that never
-    // moved. The neck's share swings the ball itself around on its riser,
-    // which is what a nod actually looks like.
+  it('carries the whole turn on the head joint, so the ball really moves', () => {
+    // The head's angle swings its bone about the neck joint — the ball's
+    // underside — so a nod moves the ball, not just the eyes inside it.
     const w0 = solveWorld(defaultPose());
     const nodded = shapeHead(defaultPose(), { ...level, nod: 1 });
     expect(solveWorld(nodded).head.z).toBeGreaterThan(w0.head.z + 1);
     expect(HEAD_COLUMN.map(([, share]) => share).reduce((a, b) => a + b, 0)).toBeCloseTo(1, 9);
+    // Nothing lands on the neck joint: its bone swings about the COLLAR —
+    // down where the neck meets the chest — which is the old pivot the
+    // head's turns moved off of.
+    expect(nodded.angles.neck).toBeUndefined();
     const angleOf = (id: JointId) =>
       2 * Math.acos(Math.min(1, Math.abs(nodded.angles[id]![3])));
-    expect(angleOf('head')).toBeGreaterThan(angleOf('neck'));
-    // The total is the full range the slider promises.
-    expect(angleOf('head') + angleOf('neck')).toBeCloseTo(HEAD_RANGE.nod, 6);
+    // The head joint takes the full range the slider promises.
+    expect(angleOf('head')).toBeCloseTo(HEAD_RANGE.nod, 6);
+  });
+
+  it('swings the ball about the TOP of the neck, where skull meets riser', () => {
+    // The neck joint is the head's pivot and it sits at the ball's underside
+    // (skeleton.ts): a nod moves the ball's center but never the point it
+    // hinges on — and never further from it than the bone that carries it,
+    // the ball's own radius. The old 2-unit riser had this hinge down at
+    // the chest, so a nod swept the whole head around the collarbones.
+    const w0 = solveWorld(defaultPose());
+    const w = solveWorld(shapeHead(defaultPose(), { ...level, nod: 1 }));
+    // The pivot itself holds still…
+    expect(w.neck).toEqual(w0.neck);
+    // …one ball-radius below the resting ball's center…
+    expect(w0.head.y - w0.neck.y).toBeCloseTo(8.67, 6);
+    // …and the swinging center keeps that distance through the nod.
+    expect(Math.hypot(w.head.x - w.neck.x, w.head.y - w.neck.y, w.head.z - w.neck.z))
+      .toBeCloseTo(8.67, 6);
   });
 
   it('adds to a head the spine already turned, instead of straightening it', () => {

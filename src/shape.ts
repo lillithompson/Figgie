@@ -410,7 +410,7 @@ export function shapeSpine(pose: FiggiePose, shape: SpineShape): FiggiePose {
   ]);
 }
 
-/** How far the head sliders can carry it, radians end to end (shared out
+/** How far the head sliders can carry it, radians end to end (applied
  *  along {@link HEAD_COLUMN}). A nod reaches chin-to-chest and a good way
  *  back; a shake turns the face nearly square to the side, which is about
  *  as far as a real neck goes before the shoulders have to follow; a tilt
@@ -418,16 +418,16 @@ export function shapeSpine(pose: FiggiePose, shape: SpineShape): FiggiePose {
  *  three because a real neck's roll is the stiffest of its turns. */
 export const HEAD_RANGE = { nod: 1.1, shake: 1.4, tilt: 0.9 };
 
-/** The column the head sliders turn, and each joint's SHARE of the total
- *  (summing to 1). The HEAD joint is the ball's own center, so turning it
- *  swivels the face in place — that is where most of a nod or a shake
- *  belongs. The NECK takes the rest: for a nod its riser swings the whole
- *  ball around, so the head really moves rather than rolling its eyes in
- *  place. (A shake turns the riser about its own length, so there the split
- *  simply spreads one turn over two joints and the ball stays put — which
- *  is right: a head shakes where it stands.) */
+/** The column the head sliders turn. All of it rides the HEAD joint, whose
+ *  angle swings the head bone about its parent — the NECK joint, which the
+ *  skeleton parks at the TOP of the drawn neck, the ball's underside
+ *  (skeleton.ts). So a nod hinges where the skull meets the neck, the ball
+ *  tipping about the point it sits on. The turn used to be split with the
+ *  neck joint, whose share swung the whole head around the collar — down
+ *  where the neck meets the chest — which read as the body bowing, not the
+ *  head nodding. */
 export const HEAD_COLUMN: ReadonlyArray<[JointId, number]> = [
-  ['neck', 0.3], ['head', 0.7],
+  ['head', 1],
 ];
 
 export interface HeadShape {
@@ -441,14 +441,15 @@ export interface HeadShape {
 }
 
 /**
- * Shape the head: nod and shake together, since both write the SAME two
- * joints. Each is −1..1 with 0 meaning "as the pose already stood", split
- * along {@link HEAD_COLUMN} so the neck carries some of the turn.
+ * Shape the head: nod and shake together, since both write the SAME
+ * joint. Each is −1..1 with 0 meaning "as the pose already stood", applied
+ * along {@link HEAD_COLUMN} — all of it on the head joint, so every turn
+ * hinges at the top of the neck.
  *
  * The spine's own sliders reach up through the neck and head (they are the
  * last two links of {@link SPINE_COLUMN}, so a deep bend has the figure
- * looking at its own feet). These two are the head ALONE — the same joints,
- * a shorter column — so a nod tips the face without the body following.
+ * looking at its own feet). These are the head ALONE — a shorter column —
+ * so a nod tips the face without the body following.
  *
  * ADDS its turn to whatever the joints already hold, in the figure's own
  * frame, exactly as {@link shapeSpine} does: nod an already-shaken head and

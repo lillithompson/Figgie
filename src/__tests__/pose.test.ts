@@ -49,6 +49,15 @@ describe('the rest skeleton', () => {
     expect(w.ankleR.y).toBeCloseTo(6, 6);
   });
 
+  it('hangs the head on a pivot at the TOP of the neck', () => {
+    const w = solveWorld(defaultPose());
+    // The head bone is exactly the ball's radius — underside to center — so
+    // the joint a head swing turns about sits where the skull meets the
+    // drawn neck, not down where the neck meets the chest.
+    expect(w.head.y - w.neck.y).toBeCloseTo(8.67, 6);
+    expect(w.neck.y - w.collar.y).toBeCloseTo(6.63, 6);
+  });
+
   it('is a T-pose wider than it is tall, like the Stewie reference', () => {
     const w = solveWorld(defaultPose());
     expect(w.wristL.x).toBeCloseTo(-35.5, 6);
@@ -175,7 +184,7 @@ describe('the flesh on the bones', () => {
     // their lengths.
     expect(Math.hypot(w.shoulderR.x - w.shoulderL.x, w.shoulderR.y - w.shoulderL.y))
       .toBeCloseTo(19, 6);
-    expect(Math.hypot(w.neck.x - w.collar.x, w.neck.y - w.collar.y)).toBeCloseTo(2, 6);
+    expect(Math.hypot(w.neck.x - w.collar.x, w.neck.y - w.collar.y)).toBeCloseTo(6.63, 6);
   });
 
   it('the palm bends in the middle: the knuckle effector hinges at the pin', () => {
@@ -736,7 +745,7 @@ describe('view-normal drags (yaw ≠ 0)', () => {
     // old planar model.
     expect(Math.abs(w.head.z)).toBeGreaterThan(2);
     expect(Math.hypot(w.head.x - w.neck.x, w.head.y - w.neck.y, w.head.z - w.neck.z))
-      .toBeCloseTo(13.3, 6);
+      .toBeCloseTo(8.67, 6);
   });
 
   it('IK reaches across the view plane on APPARENT lengths', () => {
