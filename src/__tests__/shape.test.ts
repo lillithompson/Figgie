@@ -129,13 +129,14 @@ describe('flexFoot', () => {
   it('is absolute, and touches ONE foot', () => {
     const once = flexFoot(defaultPose(), 'R', 0.3);
     expect(poseEquals(flexFoot(flexFoot(defaultPose(), 'R', 1), 'R', 0.3), once)).toBe(true);
-    expect(Object.keys(once.angles).sort()).toEqual(['heelR', 'toeR']);
+    expect(Object.keys(once.angles).sort()).toEqual(['ballR', 'heelR']);
   });
 
-  it('pitches the whole foot about the ankle, leaving the ball alone', () => {
+  it('pitches the whole foot about the ankle, leaving the toe alone', () => {
     // The slider swings the L's upright, so the sole tips as one piece and
-    // the heel rides back and up — standing on tiptoe. The ball is the
-    // player's to bend; pointing the foot must not overwrite it.
+    // the heel rides back and up — standing on tiptoe. The toe slot (the
+    // arch crease at the ball) is the player's to bend; pointing the foot
+    // must not overwrite it.
     const w0 = solveWorld(defaultPose());
     const w = solveWorld(flexFoot(defaultPose(), 'L', 0));
     expect(w.heelL.y).toBeGreaterThan(w0.heelL.y + 1);
@@ -157,14 +158,17 @@ describe('flexFoot', () => {
 });
 
 describe('bendBall', () => {
-  it('is flat (the rest foot) at 0 and folds the ball and toes down at 1', () => {
+  it('is flat (the rest foot) at 0 and creases AT the ball at 1', () => {
     expect(poseEquals(bendBall(defaultPose(), 'L', 0), defaultPose())).toBe(true);
     const w0 = solveWorld(defaultPose());
     const w = solveWorld(bendBall(defaultPose(), 'L', 1));
-    // The forefoot folds under — ball and toes both drop — while the heel
-    // stays put: the foot bent in the middle as if standing on tiptoe.
-    expect(w.ballL.y).toBeLessThan(w0.ballL.y - 2);
+    // Only the toe segment folds under — the crease is at the ball, the
+    // mid-foot bend a drag on the toe tip makes — while heel, ball and
+    // ankle all stay put. (Writing the ball joint instead rotated the whole
+    // sole rigidly about the heel: no visible crease, a dead ringer for the
+    // point slider — the reported bug.)
     expect(w.toeL.y).toBeLessThan(w0.toeL.y - 2);
+    expect(w.ballL.y).toBeCloseTo(w0.ballL.y, 9);
     expect(w.heelL.y).toBeCloseTo(w0.heelL.y, 9);
     expect(w.ankleL.y).toBeCloseTo(w0.ankleL.y, 9);
   });
@@ -172,11 +176,11 @@ describe('bendBall', () => {
   it('is absolute, and touches ONE joint', () => {
     const once = bendBall(defaultPose(), 'R', 0.3);
     expect(poseEquals(bendBall(bendBall(defaultPose(), 'R', 1), 'R', 0.3), once)).toBe(true);
-    expect(Object.keys(once.angles).sort()).toEqual(['ballR']);
+    expect(Object.keys(once.angles).sort()).toEqual(['toeR']);
   });
 
   it('composes with flexFoot in either order — disjoint joints', () => {
-    // The point owns heel + toe, the ball bend owns the ball: a pointed
+    // The point owns heel + ball, the ball bend owns the toe: a pointed
     // foot keeps its point while the arch folds, whichever came first.
     const a = bendBall(flexFoot(defaultPose(), 'L', 0.2), 'L', 0.7);
     const b = flexFoot(bendBall(defaultPose(), 'L', 0.7), 'L', 0.2);
@@ -673,6 +677,6 @@ describe('twistWrist / twistAnkle', () => {
     expect(Object.keys(hand.angles).sort()).toEqual(['ankleR', 'wristL']);
     // Curl and flex still own their own joints, so a part's sliders stack.
     const both = flexFoot(twistAnkle(defaultPose(), 'L', 0.5), 'L', 0);
-    expect(Object.keys(both.angles).sort()).toEqual(['ankleL', 'heelL', 'toeL']);
+    expect(Object.keys(both.angles).sort()).toEqual(['ankleL', 'ballL', 'heelL']);
   });
 });

@@ -86,7 +86,12 @@ export const FINGER_COLUMN: ReadonlyArray<[1 | 2 | 3, number]> = [
  *  standing on tiptoe. Stopping short of the shin's own line is deliberate;
  *  a foot folded flat against the shin reads as broken, not as pointed. */
 const POINT_ANKLE = 0.95;
-const POINT_TOE = 0.34;
+/** The point's extra fold of the sole, written on the BALL slot (the
+ *  heel→ball bone) now that the toe slot belongs to {@link bendBall}. Capped
+ *  by the heading invariant: at a full point the toe must stay FORWARD of
+ *  the ankle along the foot's own splay line (past ~0.22 it crosses behind
+ *  and the foot's horizontal heading flips). */
+const POINT_BALL = 0.2;
 
 function clamp01(v: number): number {
   return !Number.isFinite(v) ? 0 : v < 0 ? 0 : v > 1 ? 1 : v;
@@ -315,17 +320,18 @@ function footAxis(side: Side): [number, number, number] {
 /**
  * Flex one foot: `t` 0 = toes fully pointed (the foot extends in line with
  * the shin), 1 = flat (the sole level, the rest pose). Writes only that
- * foot's heel and toe joints — the heel pitches the whole foot about the
- * ankle, the toe curls the tip a little further; the BALL is left alone, so
- * a foot the player has bent at the ball keeps that bend while this slider
- * points it.
+ * foot's heel and ball joints — the heel pitches the whole foot about the
+ * ankle, the ball folds the sole a little further; the TOE slot (the
+ * ball→toe bone — where {@link bendBall} creases the arch) is left alone,
+ * so a foot the player has bent at the ball keeps that bend while this
+ * slider points it.
  */
 export function flexFoot(pose: FiggiePose, side: Side, t: number): FiggiePose {
   const point = 1 - clamp01(t); // 1 = fully pointed
   const axis = footAxis(side);
   const angles: Angles = { ...pose.angles };
   setAngle(angles, `heel${side}` as JointId, axis, POINT_ANKLE * point);
-  setAngle(angles, `toe${side}` as JointId, axis, POINT_TOE * point);
+  setAngle(angles, `ball${side}` as JointId, axis, POINT_BALL * point);
   return { ...pose, angles };
 }
 
@@ -335,19 +341,23 @@ export function flexFoot(pose: FiggiePose, side: Side, t: number): FiggiePose {
 export const BALL_BEND_RANGE = 0.9;
 
 /**
- * Bend one foot in the MIDDLE: `t` 0 = flat (the rest pose), 1 = the ball
- * and toes swung fully down — the heel stays put and the forefoot folds
- * under, the foot bent as if standing on tiptoe. Writes only that
- * foot's ball joint (the heel→ball bone, pivoting at the heel) — the
- * slot {@link flexFoot} deliberately leaves alone — so the two compose:
- * a pointed foot keeps its point while the arch folds, and vice versa.
+ * Bend one foot in the MIDDLE: `t` 0 = flat (the rest pose), 1 = the toes
+ * swung fully down — heel and ball stay put and the forefoot folds under
+ * AT THE BALL, the foot creased as if standing on tiptoe. Writes only that
+ * foot's toe joint (the ball→toe bone, pivoting at the ball — the same
+ * crease a drag on the toe tip's IK makes) — the slot {@link flexFoot}
+ * deliberately leaves alone — so the two compose: a pointed foot keeps its
+ * point while the arch folds, and vice versa. Writing the BALL joint here
+ * instead swung the heel→ball bone about the heel: the sole rotated as one
+ * straight piece, indistinguishable on screen from the point slider —
+ * exactly the bug this slot split fixes.
  * Absolute and idempotent like the other foot shapers.
  */
 export function bendBall(pose: FiggiePose, side: Side, t: number): FiggiePose {
   const angles: Angles = { ...pose.angles };
   // The same positive sense flexFoot points with: toes DOWN — a tiptoe
   // fold, not toes lifted in the air.
-  setAngle(angles, `ball${side}` as JointId, footAxis(side), BALL_BEND_RANGE * clamp01(t));
+  setAngle(angles, `toe${side}` as JointId, footAxis(side), BALL_BEND_RANGE * clamp01(t));
   return { ...pose, angles };
 }
 
