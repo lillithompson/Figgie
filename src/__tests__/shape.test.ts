@@ -9,8 +9,8 @@
 import {
   FINGER_COLUMN, FIST_RANGE, HAND_STRAIGHT_AT, HEAD_COLUMN, HEAD_RANGE, SPINE_COLUMN,
   SPINE_RANGE, curlHand,
-  bendWrist, flexFoot, rotateRig, shapeHead, shapeSpine, centered, spreadHand, twistAnkle,
-  twistWrist,
+  bendBall, bendWrist, flexFoot, rotateRig, shapeHead, shapeSpine, centered, spreadHand,
+  twistAnkle, twistWrist,
 } from '../shape';
 import { defaultPose, poseEquals, resolveDrag, solveWorld } from '../pose';
 import { quatRotate } from '../quat';
@@ -153,6 +153,41 @@ describe('flexFoot', () => {
       s.ballL.x - s.heelL.x, s.ballL.y - s.heelL.y, s.ballL.z - s.heelL.z,
     );
     expect(span(w)).toBeCloseTo(span(w0), 6);
+  });
+});
+
+describe('bendBall', () => {
+  it('is flat (the rest foot) at 0 and swings the ball and toes up at 1', () => {
+    expect(poseEquals(bendBall(defaultPose(), 'L', 0), defaultPose())).toBe(true);
+    const w0 = solveWorld(defaultPose());
+    const w = solveWorld(bendBall(defaultPose(), 'L', 1));
+    // The forefoot rises off the ground — ball and toes both — while the
+    // heel stays planted: a foot rocked back with its toes in the air.
+    expect(w.ballL.y).toBeGreaterThan(w0.ballL.y + 2);
+    expect(w.toeL.y).toBeGreaterThan(w0.toeL.y + 2);
+    expect(w.heelL.y).toBeCloseTo(w0.heelL.y, 9);
+    expect(w.ankleL.y).toBeCloseTo(w0.ankleL.y, 9);
+  });
+
+  it('is absolute, and touches ONE joint', () => {
+    const once = bendBall(defaultPose(), 'R', 0.3);
+    expect(poseEquals(bendBall(bendBall(defaultPose(), 'R', 1), 'R', 0.3), once)).toBe(true);
+    expect(Object.keys(once.angles).sort()).toEqual(['ballR']);
+  });
+
+  it('composes with flexFoot in either order — disjoint joints', () => {
+    // The point owns heel + toe, the ball bend owns the ball: a pointed
+    // foot keeps its point while the toes lift, whichever came first.
+    const a = bendBall(flexFoot(defaultPose(), 'L', 0.2), 'L', 0.7);
+    const b = flexFoot(bendBall(defaultPose(), 'L', 0.7), 'L', 0.2);
+    expect(poseEquals(a, b)).toBe(true);
+    expect(Object.keys(a.angles).sort()).toEqual(['ballL', 'heelL', 'toeL']);
+  });
+
+  it('lifts both feet the same way', () => {
+    const l = solveWorld(bendBall(defaultPose(), 'L', 1));
+    const r = solveWorld(bendBall(defaultPose(), 'R', 1));
+    expect(l.toeL.y).toBeCloseTo(r.toeR.y, 6);
   });
 });
 

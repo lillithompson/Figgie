@@ -329,6 +329,28 @@ export function flexFoot(pose: FiggiePose, side: Side, t: number): FiggiePose {
   return { ...pose, angles };
 }
 
+/** How far the ball can hinge the toe box UP off the ground, radians —
+ *  well short of vertical, the shape of a foot rocked back on its heel
+ *  with the toes in the air. */
+export const BALL_BEND_RANGE = 0.9;
+
+/**
+ * Bend one foot at the BALL: `t` 0 = flat (the rest pose), 1 = the ball
+ * and toes swung fully up — the heel stays planted and the forefoot
+ * rises, a foot rocked back with its toes in the air. Writes only that
+ * foot's ball joint (the heel→ball bone, pivoting at the heel) — the
+ * slot {@link flexFoot} deliberately leaves alone — so the two compose:
+ * a pointed foot keeps its point while the ball lifts, and vice versa.
+ * Absolute and idempotent like the other foot shapers.
+ */
+export function bendBall(pose: FiggiePose, side: Side, t: number): FiggiePose {
+  const angles: Angles = { ...pose.angles };
+  // flexFoot's positive sense about this same axis pitches the toes DOWN
+  // (the point); the ball's lift is the opposite way.
+  setAngle(angles, `ball${side}` as JointId, footAxis(side), -BALL_BEND_RANGE * clamp01(t));
+  return { ...pose, angles };
+}
+
 /** How far each rig-rotation slider can turn the whole figure, radians
  *  end to end — a half turn each way on every axis, so the mannequin can
  *  be stood in any orientation from three sliders. */
