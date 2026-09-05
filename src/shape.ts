@@ -340,10 +340,17 @@ export function flexFoot(pose: FiggiePose, side: Side, t: number): FiggiePose {
  *  tiptoe. */
 export const BALL_BEND_RANGE = 0.9;
 
+/** How far the ball can lift the forefoot BACK — toes peeled up off the
+ *  ground, a full quarter turn: the shape of toes pressed against a wall.
+ *  Wider than the forward fold on purpose; the forward end stops at the
+ *  tiptoe crease, while the back end is the slider's whole point. */
+export const BALL_BEND_BACK_RANGE = Math.PI / 2;
+
 /**
- * Bend one foot in the MIDDLE: `t` 0 = flat (the rest pose), 1 = the toes
- * swung fully down — heel and ball stay put and the forefoot folds under
- * AT THE BALL, the foot creased as if standing on tiptoe. Writes only that
+ * Bend one foot in the MIDDLE: `t` −1..1 CENTERED — 0 = flat (the rest
+ * pose), +1 = the toes swung fully down through the arch (the tiptoe
+ * crease), −1 = the toes peeled a quarter turn UP off the ground. Heel and
+ * ball stay put and the forefoot folds AT THE BALL. Writes only that
  * foot's toe joint (the ball→toe bone, pivoting at the ball — the same
  * crease a drag on the toe tip's IK makes) — the slot {@link flexFoot}
  * deliberately leaves alone — so the two compose: a pointed foot keeps its
@@ -355,9 +362,11 @@ export const BALL_BEND_RANGE = 0.9;
  */
 export function bendBall(pose: FiggiePose, side: Side, t: number): FiggiePose {
   const angles: Angles = { ...pose.angles };
-  // The same positive sense flexFoot points with: toes DOWN — a tiptoe
-  // fold, not toes lifted in the air.
-  setAngle(angles, `toe${side}` as JointId, footAxis(side), BALL_BEND_RANGE * clamp01(t));
+  const c = !Number.isFinite(t) ? 0 : Math.max(-1, Math.min(1, t));
+  // The same positive sense flexFoot points with: positive = toes DOWN — a
+  // tiptoe fold; negative lifts them back, through the wider back range.
+  const angle = c < 0 ? BALL_BEND_BACK_RANGE * c : BALL_BEND_RANGE * c;
+  setAngle(angles, `toe${side}` as JointId, footAxis(side), angle);
   return { ...pose, angles };
 }
 

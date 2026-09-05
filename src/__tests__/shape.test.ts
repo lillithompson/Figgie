@@ -7,6 +7,7 @@
  */
 
 import {
+  BALL_BEND_BACK_RANGE, BALL_BEND_RANGE,
   FINGER_COLUMN, FIST_RANGE, HAND_STRAIGHT_AT, HEAD_COLUMN, HEAD_RANGE, SPINE_COLUMN,
   SPINE_RANGE, curlHand,
   bendBall, bendWrist, flexFoot, rotateRig, shapeHead, shapeSpine, centered, spreadHand,
@@ -192,6 +193,31 @@ describe('bendBall', () => {
     const l = solveWorld(bendBall(defaultPose(), 'L', 1));
     const r = solveWorld(bendBall(defaultPose(), 'R', 1));
     expect(l.toeL.y).toBeCloseTo(r.toeR.y, 6);
+  });
+
+  it('peels the toes BACK up off the ground below the middle — a quarter turn at −1', () => {
+    // The slider is centered now: the forward end still stops at the
+    // tiptoe crease, but the back end swings the toe segment a full 90°
+    // up — the shape of toes pressed against a wall. Same single joint,
+    // same crease at the ball; only the sign of the fold changes.
+    const w0 = solveWorld(defaultPose());
+    const w = solveWorld(bendBall(defaultPose(), 'L', -1));
+    expect(w.toeL.y).toBeGreaterThan(w0.toeL.y + 2);
+    expect(w.ballL.y).toBeCloseTo(w0.ballL.y, 9);
+    expect(w.heelL.y).toBeCloseTo(w0.heelL.y, 9);
+    const back = bendBall(defaultPose(), 'L', -1);
+    expect(Object.keys(back.angles).sort()).toEqual(['toeL']);
+    // The full back range is π/2 — wider than the forward fold's crease.
+    expect(BALL_BEND_BACK_RANGE).toBeCloseTo(Math.PI / 2, 9);
+    expect(BALL_BEND_BACK_RANGE).toBeGreaterThan(BALL_BEND_RANGE);
+    // A quarter turn: the toe segment stands (near-)vertical off the ball,
+    // its rise above the ball a hair under the segment's own length — the
+    // bend axis rides the foot's small splay, so exactly vertical it isn't.
+    const seg = Math.hypot(
+      w0.toeL.x - w0.ballL.x, w0.toeL.y - w0.ballL.y, w0.toeL.z - w0.ballL.z,
+    );
+    expect(w.toeL.y - w.ballL.y).toBeGreaterThan(seg * 0.99);
+    expect(w.toeL.y - w.ballL.y).toBeLessThanOrEqual(seg + 1e-6);
   });
 });
 
