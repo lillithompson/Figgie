@@ -108,10 +108,10 @@ describe('curlHand', () => {
 });
 
 describe('flexFoot', () => {
-  it('is flat (the rest foot) at 1 and pointed at 0', () => {
-    expect(poseEquals(flexFoot(defaultPose(), 'L', 1), defaultPose())).toBe(true);
+  it('is flat (the rest foot) at 0 and pointed at 1 — the slider travels toward the point', () => {
+    expect(poseEquals(flexFoot(defaultPose(), 'L', 0), defaultPose())).toBe(true);
     const w0 = solveWorld(defaultPose());
-    const w = solveWorld(flexFoot(defaultPose(), 'L', 0));
+    const w = solveWorld(flexFoot(defaultPose(), 'L', 1));
     // A pointed toe drops below the rest sole and reaches further out.
     expect(w.toeL.y).toBeLessThan(w0.toeL.y - 2);
     expect(w.ankleL.y).toBeCloseTo(w0.ankleL.y, 9); // the ankle holds
@@ -121,7 +121,7 @@ describe('flexFoot', () => {
     // The foot's horizontal heading is unchanged by the pitch — only its
     // height drops — so a pointed foot still faces where it stood.
     const w0 = solveWorld(defaultPose());
-    const w = solveWorld(flexFoot(defaultPose(), 'L', 0));
+    const w = solveWorld(flexFoot(defaultPose(), 'L', 1));
     const heading = (a: { x: number; z: number }, b: { x: number; z: number }) =>
       Math.atan2(b.z - a.z, b.x - a.x);
     expect(heading(w.ankleL, w.toeL)).toBeCloseTo(heading(w0.ankleL, w0.toeL), 2);
@@ -139,7 +139,7 @@ describe('flexFoot', () => {
     // arch crease at the ball) is the player's to bend; pointing the foot
     // must not overwrite it.
     const w0 = solveWorld(defaultPose());
-    const w = solveWorld(flexFoot(defaultPose(), 'L', 0));
+    const w = solveWorld(flexFoot(defaultPose(), 'L', 1));
     expect(w.heelL.y).toBeGreaterThan(w0.heelL.y + 1);
     expect(w.heelL.z).toBeLessThan(w0.heelL.z);
     // Sole flat at rest, steep when pointed — measured heel to toe.
@@ -702,7 +702,7 @@ describe('twistWrist / twistAnkle', () => {
     const hand = twistWrist(twistAnkle(defaultPose(), 'R', 0.5), 'L', 0.5);
     expect(Object.keys(hand.angles).sort()).toEqual(['ankleR', 'wristL']);
     // Curl and flex still own their own joints, so a part's sliders stack.
-    const both = flexFoot(twistAnkle(defaultPose(), 'L', 0.5), 'L', 0);
+    const both = flexFoot(twistAnkle(defaultPose(), 'L', 0.5), 'L', 1);
     expect(Object.keys(both.angles).sort()).toEqual(['ankleL', 'ballL', 'heelL']);
   });
 });

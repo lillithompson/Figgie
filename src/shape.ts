@@ -318,8 +318,9 @@ function footAxis(side: Side): [number, number, number] {
 }
 
 /**
- * Flex one foot: `t` 0 = toes fully pointed (the foot extends in line with
- * the shin), 1 = flat (the sole level, the rest pose). Writes only that
+ * Flex one foot: `t` 0 = flat (the sole level, the rest pose), 1 = toes
+ * fully pointed (the foot extends in line with the shin) — the slider
+ * travels TOWARD the point, from a rest at its floor. Writes only that
  * foot's heel and ball joints — the heel pitches the whole foot about the
  * ankle, the ball folds the sole a little further; the TOE slot (the
  * ball→toe bone — where {@link bendBall} creases the arch) is left alone,
@@ -327,7 +328,7 @@ function footAxis(side: Side): [number, number, number] {
  * slider points it.
  */
 export function flexFoot(pose: FiggiePose, side: Side, t: number): FiggiePose {
-  const point = 1 - clamp01(t); // 1 = fully pointed
+  const point = clamp01(t); // 1 = fully pointed
   const axis = footAxis(side);
   const angles: Angles = { ...pose.angles };
   setAngle(angles, `heel${side}` as JointId, axis, POINT_ANKLE * point);
