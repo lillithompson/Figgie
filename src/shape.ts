@@ -34,12 +34,18 @@ import {
 
 export type Side = 'L' | 'R';
 
-/** How far a spine slider can carry the column, radians end to end (the
- *  total is shared out along {@link SPINE_COLUMN}). The bend reaches far
- *  enough to curl the figure right over — a deep stoop, not a polite nod —
- *  because it arrives spread along the whole column rather than as a hinge
- *  at one joint. */
-export const SPINE_RANGE = { bend: 2, twist: 0.8, lean: 0.6 };
+/** How far a spine slider can carry the column, radians EACH WAY from
+ *  straight (the total is shared out along {@link SPINE_COLUMN}, so the
+ *  slider's two ends are ±this). All three reach past what a spine
+ *  anatomically does, on the mannequin principle the wrist's twist is
+ *  already sized by — a figure is posed for expression, and a range that
+ *  stops where a real back stops leaves the poses people actually reach
+ *  for out of grasp. The bend curls the figure right over and on round;
+ *  the twist turns the shoulders square to the side and past it; the lean
+ *  lays the column most of the way down toward the horizontal. None of
+ *  them reads as a broken hinge, because each arrives SPREAD along five
+ *  joints rather than folded into one. */
+export const SPINE_RANGE = { bend: 2.6, twist: 1.7, lean: 1.6 };
 
 /** The column the spine sliders bend, stomach → head, and each joint's
  *  SHARE of the total (summing to 1). Every bone from the pelvis up takes
@@ -48,7 +54,18 @@ export const SPINE_RANGE = { bend: 2, twist: 0.8, lean: 0.6 };
  *  runs all the way through: the collar carries the shoulders round, the
  *  neck and head finish the curve, so a deep bend has the figure looking
  *  down at its own feet rather than staring straight ahead from a folded
- *  body. */
+ *  body.
+ *
+ *  It must list EVERY posable joint on the chain from the stomach up to
+ *  the head — a joint that has been added to the skeleton and not to this
+ *  list would stay rigid while the bones either side of it curved, which
+ *  is a kink in the figure and nothing in the sliders would say so. The
+ *  shape suite derives the chain from the skeleton itself and pins this
+ *  against it, so adding a joint to the spine trips a test rather than
+ *  quietly dropping out of the curve. (`neckBase` is on the chain and is
+ *  deliberately NOT here: it is rigid — the chest's own surface, where the
+ *  neck leaves the volume — and `solveWorld` ignores a non-posable joint's
+ *  angle, so a share written there would turn nothing at all.) */
 export const SPINE_COLUMN: ReadonlyArray<[JointId, number]> = [
   ['spine', 0.3], ['chest', 0.26], ['collar', 0.19], ['neck', 0.13], ['head', 0.12],
 ];

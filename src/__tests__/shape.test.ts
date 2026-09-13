@@ -15,7 +15,7 @@ import {
 } from '../shape';
 import { defaultPose, poseEquals, resolveDrag, solveWorld } from '../pose';
 import { quatRotate } from '../quat';
-import { JointId, dragTargetFor } from '../skeleton';
+import { JointId, SKELETON, dragTargetFor } from '../skeleton';
 
 describe('curlHand', () => {
   it('opens PAST straight at 0, stands straight a tenth up, and fists at 1', () => {
@@ -295,6 +295,51 @@ describe('shapeSpine', () => {
     expect(column.reduce((a, b) => a + b, 0)).toBeCloseTo(SPINE_RANGE.bend, 6);
   });
 
+  it('carries EVERY posable joint from the stomach up through the head', () => {
+    // Derived from the skeleton, not written down twice: walk the parent
+    // chain the head hangs off, down to the stomach, and the posable
+    // joints on it ARE the column. A joint added to the neck or the torso
+    // and forgotten here would stay rigid between two bones that curved —
+    // a kink, with nothing in the sliders to say so — and this is what
+    // catches it (`neckBase` was added exactly that way; it stays out
+    // because it is rigid, which the chain below reads off `posable`).
+    const chain: JointId[] = [];
+    for (let id: JointId | null = 'head'; id && id !== 'root';) {
+      const j = SKELETON.find((s) => s.id === id)!;
+      if (j.posable) chain.unshift(j.id);
+      id = j.parent;
+    }
+    expect(SPINE_COLUMN.map(([id]) => id)).toEqual(chain);
+    // And the rigid landmark on that chain is left out on purpose: a
+    // non-posable joint's angle is ignored by solveWorld, so a share
+    // written there would turn nothing.
+    expect(SKELETON.find((s) => s.id === 'neckBase')!.posable).toBe(false);
+  });
+
+  it('reaches farther than a real spine, every axis', () => {
+    // A mannequin is posed for expression, not anatomy (the same principle
+    // the wrist's twist is sized by). A real back manages roughly a
+    // quarter turn of twist and a shallower lean than that; these go well
+    // past both, spread over five joints so the extra reads as a curve.
+    expect(SPINE_RANGE.bend).toBeGreaterThan(Math.PI / 2);
+    expect(SPINE_RANGE.twist).toBeGreaterThan(Math.PI / 2);
+    expect(SPINE_RANGE.lean).toBeGreaterThan(Math.PI / 2);
+    const w0 = solveWorld(defaultPose());
+    // The twist turns the shoulder line past square to the side: the two
+    // shoulders swap which side of the figure's own mid-line they sit on.
+    const tw = solveWorld(shapeSpine(defaultPose(), { ...straight, twist: 1 }));
+    expect(Math.sign(tw.shoulderL.z - tw.shoulderR.z))
+      .toBe(-Math.sign(w0.shoulderL.x - w0.shoulderR.x));
+    expect(Math.abs(tw.shoulderL.x - tw.shoulderR.x))
+      .toBeLessThan(Math.abs(w0.shoulderL.x - w0.shoulderR.x) / 2);
+    // The lean lays the column most of the way over: the head travels
+    // sideways farther than it drops is no longer true — it ends up out
+    // past the hips, below the shoulders it started under.
+    const ln = solveWorld(shapeSpine(defaultPose(), { ...straight, lean: 1 }));
+    expect(ln.head.x - w0.root.x).toBeGreaterThan(20);
+    expect(ln.head.y).toBeLessThan(w0.collar.y);
+  });
+
   it('bends far enough to fold the figure right over', () => {
     // The range is the point of spreading it: a bend this deep would be a
     // broken hinge at one joint, and reads as a stoop across five.
@@ -344,8 +389,11 @@ describe('shapeSpine', () => {
     // Sliders back at rest, LEAN alone moved: the head goes sideways…
     const leaned = solveWorld(shapeSpine(bent, { ...straight, lean: 1 }));
     expect(Math.abs(leaned.head.x - posed.head.x)).toBeGreaterThan(2);
-    // …and the figure is still folded over, not stood back up.
-    expect(leaned.head.z).toBeGreaterThan(posed.head.z * 0.8);
+    // …and the figure is still folded over, not stood back up. It keeps
+    // LESS of its forward reach than a gentler lean left it: the lean now
+    // lays the column far enough over to carry a real share of the fold
+    // round to the side with it, which is the range doing its job.
+    expect(leaned.head.z).toBeGreaterThan(posed.head.z * 0.5);
     expect(leaned.head.y).toBeLessThan(posed.head.y + 4);
     // Centre every slider and the pose is left exactly as it was.
     expect(poseEquals(shapeSpine(bent, straight), bent)).toBe(true);
@@ -478,8 +526,10 @@ describe('shapeHead', () => {
     // one flattens out and stops telling the two apart.
     expect(gaze(shapeHead(stooped, { ...level, nod: -1 })).dz)
       .toBeGreaterThan(gaze(stooped).dz + 0.5);
-    expect(gaze(shapeHead(stooped, { ...level, nod: -1 })).dy)
-      .toBeGreaterThan(gaze(stooped).dy);
+    // The gaze's VERTICAL component is no use for this: a stoop this deep
+    // is already past straight down, where dy reverses and starts falling
+    // again as the face comes up. The ball's own height says it plainly.
+    expect(after.head.y).toBeGreaterThan(before.head.y + 4);
     expect(poseEquals(shapeHead(stooped, level), stooped)).toBe(true);
   });
 
