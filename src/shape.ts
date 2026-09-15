@@ -47,14 +47,16 @@ export type Side = 'L' | 'R';
  *  joints rather than folded into one. */
 export const SPINE_RANGE = { bend: 2.6, twist: 1.7, lean: 1.6 };
 
-/** The column the spine sliders bend, stomach → head, and each joint's
- *  SHARE of the total (summing to 1). Every bone from the pelvis up takes
- *  some of the curve — weighted toward the base, the way a spine bends —
- *  so the figure arcs smoothly instead of hinging at one place. The chain
- *  runs all the way through: the collar carries the shoulders round, the
- *  neck and head finish the curve, so a deep bend has the figure looking
- *  down at its own feet rather than staring straight ahead from a folded
- *  body.
+/** The CHAIN the spine sliders bend, stomach → head, and each joint's
+ *  SHARE of the total (summing to 1, so the head arrives at the slider's
+ *  whole range). Every bone from the pelvis up takes some of the curve —
+ *  weighted toward the base, the way a spine bends — so the figure arcs
+ *  smoothly instead of hinging at one place. The chain runs all the way
+ *  through: the collar carries the shoulder girdle round, the neck and
+ *  head finish the curve, so a deep bend has the figure looking down at
+ *  its own feet rather than staring straight ahead from a folded body.
+ *  The shoulders themselves take the leftover as a branch — see
+ *  {@link SPINE_BRANCH}.
  *
  *  It must list EVERY posable joint on the chain from the stomach up to
  *  the head — a joint that has been added to the skeleton and not to this
@@ -68,6 +70,43 @@ export const SPINE_RANGE = { bend: 2.6, twist: 1.7, lean: 1.6 };
  *  angle, so a share written there would turn nothing at all.) */
 export const SPINE_COLUMN: ReadonlyArray<[JointId, number]> = [
   ['spine', 0.3], ['chest', 0.26], ['collar', 0.19], ['neck', 0.13], ['head', 0.12],
+];
+
+/** What the column has turned by the time it reaches the COLLAR — where
+ *  the figure forks three ways, into the neck and the two arms. */
+const COLLAR_CARRY = SPINE_COLUMN
+  .slice(0, SPINE_COLUMN.findIndex(([id]) => id === 'collar') + 1)
+  .reduce((sum, [, share]) => sum + share, 0);
+
+/**
+ * The column's OTHER two tips: the shoulders.
+ *
+ * A spine slider always carried the arms — they hang off the collar, and
+ * the collar turns — but only as far as the collar goes, three quarters of
+ * the way, while the neck and head carried the rest of the curve up to the
+ * full range. The shoulder girdle sat rigid between a torso that turned
+ * and a head that turned further, which is the same kink the chain's own
+ * shares exist to avoid, and it is what a twist most obviously wants: the
+ * shoulders are the part of a body a turn is READ from.
+ *
+ * So each shoulder takes exactly what the chain has left above the collar,
+ * and every tip of the figure — the head and both hands — ends up carried
+ * through the slider's whole range, the curve spread along the way.
+ *
+ * A branch, NOT a link: these two shares sit beside each other rather than
+ * accumulating, so they take the leftover once each and the arms cannot
+ * outrun the head.
+ *
+ * What the turn DOES at a shoulder depends on the axis it is about, since
+ * the collar→shoulder bone lies along the figure's own left-right line.
+ * The twist sweeps one shoulder forward and the other back (the shoulder
+ * line turning square to the viewer); the lean lifts one and drops the
+ * other; the bend runs ALONG the bone, so it rolls the arm about its own
+ * length rather than moving the shoulder — the arms come forward on the
+ * collar in a bend, as they always did.
+ */
+export const SPINE_BRANCH: ReadonlyArray<[JointId, number]> = [
+  ['shoulderL', 1 - COLLAR_CARRY], ['shoulderR', 1 - COLLAR_CARRY],
 ];
 
 /** How far a finger travels closing into a fist, radians from straight to
@@ -462,7 +501,7 @@ export interface SpineShape {
  * a slider will pile onto the first instead of replacing it.
  */
 export function shapeSpine(pose: FiggiePose, shape: SpineShape): FiggiePose {
-  return shapeColumn(pose, SPINE_COLUMN, [
+  return shapeColumn(pose, [...SPINE_COLUMN, ...SPINE_BRANCH], [
     // Lean's range is NEGATED so the slider reads as it looks: pushed one
     // way, the figure tips that way on screen.
     [[0, 0, 1], -SPINE_RANGE.lean, shape.lean],

@@ -8,13 +8,13 @@
 
 import {
   BALL_BEND_BACK_RANGE, BALL_BEND_RANGE,
-  FINGER_COLUMN, FIST_RANGE, HAND_STRAIGHT_AT, HEAD_COLUMN, HEAD_RANGE, SPINE_COLUMN,
-  SPINE_RANGE, curlHand,
+  FINGER_COLUMN, FIST_RANGE, HAND_STRAIGHT_AT, HEAD_COLUMN, HEAD_RANGE, SPINE_BRANCH,
+  SPINE_COLUMN, SPINE_RANGE, curlHand,
   bendBall, bendWrist, flexFoot, rotateRig, shapeHead, shapeSpine, centered, spreadHand,
   twistAnkle, twistWrist, TWIST_RANGE,
 } from '../shape';
 import { defaultPose, poseEquals, resolveDrag, solveWorld } from '../pose';
-import { quatRotate } from '../quat';
+import { Quat, quatRotate } from '../quat';
 import { JointId, SKELETON, dragTargetFor } from '../skeleton';
 
 describe('curlHand', () => {
@@ -280,9 +280,10 @@ describe('shapeSpine', () => {
   it('shares the curve along the whole column, stomach to head', () => {
     const p = shapeSpine(defaultPose(), { ...straight, bend: 1 });
     // Every bone from the pelvis up takes some of it — the stomach, the
-    // chest, the shoulder girdle, and on through the neck to the head.
+    // chest, the shoulder girdle, and on through the neck to the head,
+    // with the two shoulders branching off the collar.
     expect(Object.keys(p.angles).sort())
-      .toEqual(['chest', 'collar', 'head', 'neck', 'spine']);
+      .toEqual(['chest', 'collar', 'head', 'neck', 'shoulderL', 'shoulderR', 'spine']);
     expect(SPINE_COLUMN.map(([, share]) => share).reduce((a, b) => a + b, 0)).toBeCloseTo(1, 9);
     // …weighted toward the base, so the arc is smooth rather than a hinge.
     const angleOf = (id: JointId) =>
@@ -293,6 +294,67 @@ describe('shapeSpine', () => {
     }
     // The total is the full range the slider promises.
     expect(column.reduce((a, b) => a + b, 0)).toBeCloseTo(SPINE_RANGE.bend, 6);
+  });
+
+  it('carries the SHOULDERS as well: every tip of the figure turns the full range', () => {
+    // The girdle used to sit rigid between a torso that turned and a head
+    // that turned further — the same kink the chain's own shares exist to
+    // avoid, on the one part of a body a turn is read from. Each shoulder
+    // now takes what the chain leaves above the collar, so the head and
+    // both hands all arrive at the slider's whole range.
+    const upToCollar = SPINE_COLUMN
+      .slice(0, SPINE_COLUMN.findIndex(([id]) => id === 'collar') + 1)
+      .reduce((sum, [, share]) => sum + share, 0);
+    expect(SPINE_BRANCH.map(([id]) => id)).toEqual(['shoulderL', 'shoulderR']);
+    for (const [, share] of SPINE_BRANCH) expect(upToCollar + share).toBeCloseTo(1, 9);
+    // A pure twist is one axis all the way up, so each joint's WORLD
+    // rotation is the turn it has accumulated: the full range at the head
+    // and at both shoulders, and short of it at the collar under them.
+    const tw = solveWorld(shapeSpine(defaultPose(), { ...straight, twist: 1 }));
+    const turned = (q: Quat) => 2 * Math.acos(Math.min(1, Math.abs(q[3])));
+    for (const id of ['head', 'shoulderL', 'shoulderR'] as const) {
+      expect([id, turned(tw[id].rot)]).toEqual([id, expect.closeTo(SPINE_RANGE.twist, 6)]);
+    }
+    expect(turned(tw.collar.rot)).toBeLessThan(SPINE_RANGE.twist - 0.3);
+  });
+
+  it('a twist and a lean MOVE the shoulders; a bend rolls the arms instead', () => {
+    // Where the turn takes a shoulder depends on the axis, because the
+    // collar→shoulder bone lies along the figure's own left-right line.
+    const rest = solveWorld(defaultPose());
+    /** Where the collar's turn alone would carry a shoulder — the rigid
+     *  girdle this used to be. */
+    const carried = (world: typeof rest, side: 'L' | 'R') => {
+      const s = side === 'L' ? rest.shoulderL : rest.shoulderR;
+      const [ox, oy, oz] = quatRotate(
+        world.collar.rot, s.x - rest.collar.x, s.y - rest.collar.y, s.z - rest.collar.z,
+      );
+      return { x: world.collar.x + ox, y: world.collar.y + oy, z: world.collar.z + oz };
+    };
+    const off = (world: typeof rest, side: 'L' | 'R') => {
+      const c = carried(world, side);
+      const j = side === 'L' ? world.shoulderL : world.shoulderR;
+      return Math.hypot(j.x - c.x, j.y - c.y, j.z - c.z);
+    };
+    // The TWIST sweeps one shoulder forward and the other back, past where
+    // the collar alone would have left them.
+    const tw = solveWorld(shapeSpine(defaultPose(), { ...straight, twist: 1 }));
+    expect(off(tw, 'L')).toBeGreaterThan(2);
+    expect(off(tw, 'R')).toBeGreaterThan(2);
+    expect(Math.sign(tw.shoulderL.z - carried(tw, 'L').z))
+      .toBe(-Math.sign(tw.shoulderR.z - carried(tw, 'R').z));
+    // The LEAN lifts one and drops the other.
+    const ln = solveWorld(shapeSpine(defaultPose(), { ...straight, lean: 1 }));
+    expect(off(ln, 'L')).toBeGreaterThan(2);
+    expect(Math.sign(ln.shoulderL.y - carried(ln, 'L').y))
+      .toBe(-Math.sign(ln.shoulderR.y - carried(ln, 'R').y));
+    // The BEND's axis runs ALONG that bone, so the shoulder cannot move on
+    // it: the arms come forward on the collar exactly as they always did,
+    // and the shoulder's own share rolls the arm about its own length.
+    const bn = solveWorld(shapeSpine(defaultPose(), { ...straight, bend: 1 }));
+    expect(off(bn, 'L')).toBeCloseTo(0, 6);
+    expect(off(bn, 'R')).toBeCloseTo(0, 6);
+    expect(bn.shoulderL.y).toBeLessThan(rest.shoulderL.y - 1); // carried, all the same
   });
 
   it('carries EVERY posable joint from the stomach up through the head', () => {
@@ -374,9 +436,10 @@ describe('shapeSpine', () => {
       expect(poseEquals(shapeSpine(base, shape), shapeSpine(base, shape))).toBe(true);
     }
     // And off a STRAIGHT base it is the posture it always was — the fixed
-    // lean-then-bend-then-twist composition, nothing else touched.
+    // lean-then-bend-then-twist composition, nothing touched but the
+    // column and the two shoulders that branch off it.
     expect(Object.keys(shapeSpine(defaultPose(), shape).angles).sort())
-      .toEqual(SPINE_COLUMN.map(([id]) => id).sort());
+      .toEqual([...SPINE_COLUMN, ...SPINE_BRANCH].map(([id]) => id).sort());
   });
 
   it('keeps a bend the pose already had, and leans it side to side', () => {
