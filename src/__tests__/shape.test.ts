@@ -11,7 +11,7 @@ import {
   FINGER_COLUMN, FIST_RANGE, HAND_STRAIGHT_AT, HEAD_COLUMN, HEAD_RANGE, SPINE_COLUMN,
   SPINE_RANGE, curlHand,
   bendBall, bendWrist, flexFoot, rotateRig, shapeHead, shapeSpine, centered, spreadHand,
-  twistAnkle, twistWrist,
+  twistAnkle, twistWrist, TWIST_RANGE,
 } from '../shape';
 import { defaultPose, poseEquals, resolveDrag, solveWorld } from '../pose';
 import { quatRotate } from '../quat';
@@ -705,6 +705,23 @@ describe('twistWrist / twistAnkle', () => {
     // which is the axis itself, and barely move however far it rolls.
     expect(dist(w.thumbL3, w0.thumbL3)).toBeGreaterThan(2);
     expect(dist(w.thumbL3, w.wristL)).toBeCloseTo(dist(w0.thumbL3, w0.wristL), 6);
+  });
+
+  it('rolls the hand a FULL TURN from one end of the slider to the other', () => {
+    // A hand that can only reach most of the way round has a face it
+    // cannot show. End to end is 2π (TWIST_RANGE.wrist), so the two ends
+    // are ±π about the same axis — the same orientation — and the hand
+    // arrives back where it started.
+    expect(TWIST_RANGE.wrist).toBeCloseTo(Math.PI * 2, 9);
+    const a = solveWorld(twistWrist(defaultPose(), 'L', 1));
+    const b = solveWorld(twistWrist(defaultPose(), 'L', -1));
+    expect(dist(a.thumbL3, b.thumbL3)).toBeCloseTo(0, 6);
+    // …and halfway out is a quarter turn: the thumb sweeps to the far side
+    // of the forearm's line, not merely off it.
+    const w0 = solveWorld(defaultPose());
+    const half = solveWorld(twistWrist(defaultPose(), 'L', 0.5));
+    const reach = dist(w0.thumbL3, w0.wristL);
+    expect(dist(half.thumbL3, w0.thumbL3)).toBeGreaterThan(reach);
   });
 
   it('swivels the foot about the shin without moving the ankle', () => {

@@ -132,12 +132,14 @@ function setAngle(angles: Angles, id: JointId, axis: [number, number, number], a
 }
 
 /** How far a twist slider rolls a joint about its own bone, radians end to
- *  end. The WRIST turns past what a forearm strictly does — a mannequin is
- *  posed for expression, not anatomy, and the extra reach is what lets a
- *  palm face anywhere; the ANKLE turns far less by comparison, which is
- *  also true of the real thing — a foot that swivelled like a hand would
- *  read as broken — but far enough now to plant toes well in or out. */
-export const TWIST_RANGE = { wrist: 4.4, ankle: 2.4 };
+ *  end. The WRIST turns a FULL TURN from one end of the slider to the
+ *  other — far past what a forearm strictly does, but a mannequin is posed
+ *  for expression, not anatomy, and a hand that can only reach most of the
+ *  way round has a face it cannot show; the ANKLE turns far less by
+ *  comparison, which is also true of the real thing — a foot that
+ *  swivelled like a hand would read as broken — but far enough to plant
+ *  toes well in or out. */
+export const TWIST_RANGE = { wrist: Math.PI * 2, ankle: 2.4 };
 
 /** The direction a bone points at rest, in its PARENT's frame — the axis a
  *  roll of that bone turns about. Taken from the skeleton rather than
