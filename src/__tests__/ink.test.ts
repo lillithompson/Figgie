@@ -10,8 +10,9 @@ import { buildInkDraw, inkBatch, inkVector, sketchFills, sketchInk } from '../in
 import { FiggiePose, defaultPose, resolveDrag, solveWorld } from '../pose';
 import { pushPose } from '../push';
 import { quatFromAxisAngle } from '../quat';
+import { curlHand, spreadHand } from '../shape';
 import { dragTargetFor } from '../skeleton';
-import { projectYaw } from '../view';
+import { projectTurn, projectYaw, turnQuat } from '../view';
 
 const byId = (strokes: ReturnType<typeof sketchInk>, id: string) =>
   strokes.find((s) => s.id === id);
@@ -35,15 +36,14 @@ describe('what the pen draws', () => {
 
   it('hands are a palm plus five drawn fingers that follow their poses', () => {
     expect(strokes.filter((s) => s.id.startsWith('finger-'))).toHaveLength(10);
-    // Curl the left middle finger down: its stroke follows; its neighbours
+    // Curl the left middle finger down: its tube follows; its neighbours
     // hold still.
     const bent = resolveDrag(
       defaultPose(), dragTargetFor('middleL1')!,
       solveWorld(defaultPose()).wristL.x - 2, solveWorld(defaultPose()).wristL.y - 7,
     );
-    const before = byId(strokes, 'finger-middleL')!.points;
-    const after = byId(sketchInk(bent, 0), 'finger-middleL')!.points;
-    expect(after[after.length - 1].y).toBeLessThan(before[before.length - 1].y - 3);
+    const low = (id: string, st = strokes) => Math.min(...byId(st, id)!.points.map((p) => p.y));
+    expect(low('finger-middleL', sketchInk(bent, 0))).toBeLessThan(low('finger-middleL') - 3);
     const ringBefore = byId(strokes, 'finger-ringL')!.points[0];
     const ringAfter = byId(sketchInk(bent, 0), 'finger-ringL')!.points[0];
     expect(ringAfter.x).toBeCloseTo(ringBefore.x, 6);
@@ -51,7 +51,8 @@ describe('what the pen draws', () => {
   });
 
   it('draws the body masses, hands and feet as CLOSED shapes', () => {
-    for (const id of ['chest', 'pelvis', 'head', 'handL', 'handR', 'footL', 'footR']) {
+    for (const id of ['chest', 'pelvis', 'head', 'handL', 'handR', 'footL', 'footR',
+      'finger-middleL', 'finger-thumbR']) {
       expect(byId(strokes, id)!.closed).toBe(true);
     }
     for (const id of ['spine', 'armL0', 'legR1', 'face-eye', 'face-center']) {
@@ -432,7 +433,7 @@ describe('the batch and the accent', () => {
 
   it('fills the chest, pelvis, head and joint circles as solid masses WITH depth', () => {
     const fills = sketchFills(defaultPose(), 0);
-    expect(fills.map((f) => f.id)).toEqual([
+    expect(fills.filter((f) => !f.id.startsWith('finger-')).map((f) => f.id)).toEqual([
       // One solid per hand — the palm is skinned, not split in two.
       'chest', 'pelvis', 'handL', 'handR',
       'footL', 'footR', 'toeL', 'toeR', 'head',
@@ -443,10 +444,13 @@ describe('the batch and the accent', () => {
       'joint-ankleL', 'joint-ankleR',
     ]);
     // Each solid sits BEHIND its own outline (the strokes at that plane
-    // must win the depth test), and everything is a real polygon.
+    // must win the depth test), and everything is a real polygon. The
+    // finger tubes are checked the same way in their own suite — a tube
+    // spans depth, so the test there is per SLICE rather than per finger.
     const strokes = sketchInk(defaultPose(), 0);
     for (const f of fills) {
       expect(f.points.length).toBeGreaterThanOrEqual(3);
+      if (f.id.startsWith('finger-')) continue;
       const outline = byId(strokes, f.id)!.points;
       const strokeZ = Math.min(...outline.map((p) => p.z));
       for (const p of f.points) expect(p.z).toBeLessThan(strokeZ);
@@ -546,14 +550,13 @@ describe('the batch and the accent', () => {
     const strokes = sketchInk(defaultPose(), 0);
     const maxW = (id: string) =>
       Math.max(...strokes.find((s) => s.id === id)!.points.map((p) => p.w));
-    // Palm outline vs the chest's; finger vs a limb bone.
+    // Palm outline vs the chest's; a finger's tube vs the palm's rim.
     expect(maxW('handL')).toBeLessThan(maxW('chest') * 0.62);
-    expect(maxW('finger-middleL')).toBeLessThan(maxW('armL0') * 0.6);
-    // The fingers are the exception to the light hand: five lines side by
-    // side need a little more weight or the hand reads as hatching. They
-    // still come in under the palm they hang off.
-    expect(maxW('finger-middleL')).toBeGreaterThan(maxW('armL0') * 0.3);
-    expect(maxW('finger-middleL')).toBeLessThan(maxW('handL'));
+    // The fingers draw lightest of all: their outline has to fit twice
+    // across a tube barely a rig unit wide, where the palm's rim has room
+    // to spare. Light, but still a drawn line — not a hairline.
+    expect(maxW('finger-middleL')).toBeLessThan(maxW('handL') * 0.75);
+    expect(maxW('finger-middleL')).toBeGreaterThan(maxW('armL0') * 0.15);
   });
 
   it('batches the fills as depth geometry alongside the ink', () => {
@@ -807,5 +810,176 @@ describe('the palm is one skinned solid', () => {
     const outer = Math.min(...fill.points.map((p) => p.x));
     expect(outer).toBeCloseTo(world.knuckL.x, 6);
     expect(inner - outer).toBeLessThan(Math.abs(world.wristL.x - world.knuckL.x));
+  });
+});
+
+describe('every finger is a solid tube', () => {
+  const FINGERS = ['thumb', 'index', 'middle', 'ring', 'pinky'] as const;
+
+  /** Nonzero winding — a tube's own outline crosses itself at a tight
+   *  curl, which is exactly why the bake fills with the nonzero rule. */
+  const holds = (poly: ReadonlyArray<{ x: number; y: number }>, x: number, y: number) => {
+    let wind = 0;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const a = poly[i];
+      const b = poly[j];
+      if ((a.y > y) !== (b.y > y) && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) {
+        wind += a.y < b.y ? 1 : -1;
+      }
+    }
+    return wind !== 0;
+  };
+
+  it('draws all ten as closed outlines, and fills each in convex slices', () => {
+    const strokes = sketchInk(defaultPose(), 0);
+    const fills = sketchFills(defaultPose(), 0);
+    for (const side of ['L', 'R'] as const) {
+      for (const name of FINGERS) {
+        const id = `finger-${name}${side}`;
+        expect(byId(strokes, id)!.closed).toBe(true);
+        // The solid arrives as SLICES, not one polygon: a curled finger is
+        // not convex, and both fill paths — the GL fan and the bake's
+        // point-in-convex occlusion — are owed convex pieces.
+        const pieces = fills.filter((f) => f.id.startsWith(`${id}-`));
+        expect(pieces.length).toBeGreaterThan(2);
+        for (const piece of pieces) {
+          expect(piece.points.length).toBeGreaterThanOrEqual(3);
+          let sign = 0;
+          for (let i = 0; i < piece.points.length; i++) {
+            const a = piece.points[i];
+            const b = piece.points[(i + 1) % piece.points.length];
+            const c = piece.points[(i + 2) % piece.points.length];
+            const cross = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+            if (Math.abs(cross) < 1e-9) continue;
+            const s = cross > 0 ? 1 : -1;
+            if (sign === 0) sign = s;
+            expect(s).toBe(sign);
+          }
+          // Flat in z — what makes the bake's depth test one comparison.
+          for (const p of piece.points) expect(p.z).toBeCloseTo(piece.points[0].z, 9);
+        }
+      }
+    }
+  });
+
+  it('wraps its own bones — at rest, spread, and curled to a fist', () => {
+    // The tube is the sphere-swept volume round the chain, so every posed
+    // joint of a finger lies inside its own drawn outline. The smoothing
+    // that rounds the knuckles pulls the centerline a little inside the
+    // sharpest corner: at a FULL fist the middle knuckle can sit a tenth
+    // of a unit proud of a half-unit tube, which is why the fist is
+    // checked at the tip and the base.
+    for (const [label, pose, joints] of [
+      ['rest', defaultPose(), [1, 2, 3]],
+      ['spread', spreadHand(defaultPose(), 'L', 1), [1, 2, 3]],
+      ['half curl', curlHand(defaultPose(), 'L', 0.5), [1, 2, 3]],
+      ['fist', curlHand(defaultPose(), 'L', 1), [1, 3]],
+    ] as const) {
+      // Viewed side-on, where a curl actually reads: the fingers fold
+      // about the knuckle line, which faces the camera head-on.
+      const turn = 1.5;
+      const world = solveWorld(pose);
+      const q = turnQuat(turn);
+      const strokes = sketchInk(pose, turn, world);
+      for (const name of FINGERS) {
+        const outline = byId(strokes, `finger-${name}L`)!.points;
+        for (const seg of joints) {
+          const j = world[`${name}L${seg}` as keyof typeof world];
+          const p = projectTurn(j.x, j.y, j.z, q, world.root.x, world.root.y);
+          expect([label, name, seg, holds(outline, p.px, p.py)])
+            .toEqual([label, name, seg, true]);
+        }
+      }
+    }
+  });
+
+  it('bends SMOOTHLY: the drawn tube hugs its bones at every curl', () => {
+    // Three bones give two hard creases. Drawing the tube round a
+    // corner-cut chain rounds them off — and the proof that it rounds them
+    // rather than MISSING them is that the outline never strays from the
+    // bone chain: the boundary of a swept sphere is one radius out from
+    // its centerline, and a mitred corner would spike well past that.
+    for (const [label, t] of [['rest', 0], ['half', 0.5], ['fist', 1]] as const) {
+      const pose = curlHand(defaultPose(), 'L', t);
+      const world = solveWorld(pose);
+      const q = turnQuat(1.5); // side-on, where the curl reads
+      const chain = [0, 1, 2, 3].map((i) => {
+        const j = world[`middleL${i}` as keyof typeof world];
+        const p = projectTurn(j.x, j.y, j.z, q, world.root.x, world.root.y);
+        return { x: p.px, y: p.py };
+      });
+      const toChain = (x: number, y: number) => {
+        let best = Infinity;
+        for (let i = 0; i < chain.length - 1; i++) {
+          const a = chain[i];
+          const b = chain[i + 1];
+          const vx = b.x - a.x;
+          const vy = b.y - a.y;
+          const u = Math.max(0, Math.min(1,
+            ((x - a.x) * vx + (y - a.y) * vy) / (vx * vx + vy * vy || 1)));
+          best = Math.min(best, Math.hypot(x - (a.x + vx * u), y - (a.y + vy * u)));
+        }
+        return best;
+      };
+      const pts = byId(sketchInk(pose, 1.5), 'finger-middleL')!.points;
+      const out = pts.map((p) => toChain(p.x, p.y));
+      // Nowhere further out than the base radius plus the pen's wobble…
+      expect([label, Math.max(...out) < 0.75]).toEqual([label, true]);
+      // …and it is a tube, not a line: most of it stands a radius off.
+      expect([label, out.filter((d) => d > 0.35).length > out.length / 2])
+        .toEqual([label, true]);
+      // The smoothing spends VERTICES on that curve: a curled finger's
+      // outline carries half as many again as a straight one's.
+      expect([label, pts.length >= (t > 0 ? 18 : 12)]).toEqual([label, true]);
+    }
+  });
+
+  it('the solid sits behind the outline drawn over it', () => {
+    // Every slice is flat in z, one bias behind the nearest point of the
+    // stretch of tube it cuts — so with the hand square to the viewer,
+    // where a finger spans almost no depth at all, a finger's outline
+    // beats every slice of its own solid. (Swing the hand INTO depth and a
+    // near slice covering the far side of the same finger is the occlusion
+    // working, not a broken bias: a curled finger hides its own knuckles.)
+    const pose = spreadHand(defaultPose(), 'L', 1);
+    const strokes = sketchInk(pose, 0);
+    const fills = sketchFills(pose, 0);
+    let checked = 0;
+    for (const side of ['L', 'R'] as const) {
+      for (const name of FINGERS) {
+        const id = `finger-${name}${side}`;
+        const outline = byId(strokes, id)!.points;
+        for (const piece of fills.filter((f) => f.id.startsWith(`${id}-`))) {
+          for (const p of outline) {
+            if (!holds(piece.points, p.x, p.y)) continue;
+            expect(piece.points[0].z).toBeLessThan(p.z);
+            checked++;
+          }
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(50);
+  });
+
+  it('roots its SOLID inside the palm, and stops DRAWING at the knuckle', () => {
+    // A finger that merely touched the rim would come away from a bent
+    // palm, so the fill runs back past the base knuckle into the hand. The
+    // outline stops at the knuckle and closes across it — carried back
+    // with the fill, every finger scribbled its root across the inside of
+    // the palm, a solid in front of the palm's own fill with nothing to
+    // cover it.
+    const world = solveWorld(defaultPose());
+    const q = turnQuat(0);
+    const knuckle = projectTurn(
+      world.middleL0.x, world.middleL0.y, world.middleL0.z, q, world.root.x, world.root.y,
+    );
+    const root = sketchFills(defaultPose(), 0)
+      .filter((f) => f.id.startsWith('finger-middleL-'))
+      .flatMap((f) => f.points);
+    // The left hand reaches out along −x, so "into the palm" is +x of the
+    // knuckle: the fill reaches there, the drawn outline does not.
+    expect(Math.max(...root.map((p) => p.x))).toBeGreaterThan(knuckle.px + 0.5);
+    const outline = byId(sketchInk(defaultPose(), 0), 'finger-middleL')!.points;
+    expect(Math.max(...outline.map((p) => p.x))).toBeLessThan(knuckle.px + 0.5);
   });
 });

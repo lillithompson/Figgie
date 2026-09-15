@@ -1,7 +1,7 @@
 // Figgie's INK: the NPR shader's hand-drawn construction figure, built as
 // pure 2D geometry. Everything the pen draws — tapered wobbly strokes for
-// the bones and fingers, an oval head with its face cross curving on the
-// ball, the chest, pelvis, palms and feet as solid silhouette-traced
+// the bones, an oval head with its face cross curving on the ball, the
+// chest, pelvis, palms, feet and fingers as solid silhouette-traced
 // volumes, circles at the limb joints — is computed here in VIEW space
 // (the turned orthographic frame, rig units), then triangulated into one
 // flat-colored ribbon batch the renderer uploads and draws in a single
@@ -128,12 +128,19 @@ function profile(t: number, taperEnd: boolean, start: number): number {
  * still meet their joints) and taper toward the END; closed ones wrap
  * with a small overlap and keep their width. A guide shorter than a pen
  * dab produces no points (the batch skips it).
+ *
+ * `step` is how far apart the resampled points land. Body-scale guides
+ * take the default; a guide whose detail is FINER than that has to ask
+ * for a finer step or the resample flattens it — a fingertip's round cap
+ * is barely a rig unit across, and one sample every SAMPLE_STEP would cut
+ * the corner off it.
  */
 function pen(
   id: string,
   guide: readonly P2[],
   closed: boolean,
   width: number,
+  step: number = SAMPLE_STEP,
 ): InkStroke {
   const poly = closed ? [...guide, guide[0]] : [...guide];
   const lens: number[] = [];
@@ -146,7 +153,7 @@ function pen(
   if (total < 0.8) return { id, closed, points: [] };
 
   const span = closed ? total * (1 + CLOSE_OVERLAP) : total;
-  const n = Math.max(9, Math.min(56, Math.round(span / SAMPLE_STEP) + 1));
+  const n = Math.max(9, Math.min(56, Math.round(span / step) + 1));
   const base: P2[] = [];
   for (let i = 0; i < n; i++) {
     const s = (span * i) / (n - 1);
@@ -440,10 +447,84 @@ function palmBinds(side: 'L' | 'R'): BoundVert[] {
 }
 /** The hand draws with a LIGHTER pen: the palm outline at half the body's
  *  stroke weight, so the detail stays legible at hand scale. The FINGERS
- *  carry a quarter more than that — five thin lines side by side read as
- *  hatching rather than as fingers when they are as fine as the palm. */
+ *  are lighter again — their outline has to fit TWICE across a tube barely
+ *  a rig unit wide (see the finger tubes below), where the palm's rim has
+ *  room to spare, and a heavier pen closes the tube up into a bar. */
 const HAND_W = SHAPE_W * 0.5;
-const FINGER_W = 0.35;
+const FINGER_W = 0.22;
+
+// ── The finger tubes ────────────────────────────────────────────────
+//
+// Every other part of the hand is a SOLID: the palm a skinned box, the
+// wrist a filled circle. The fingers were the exception — five bare pen
+// lines hanging off the knuckle rim, which read as hatching beside the
+// volumes around them and hid nothing that passed behind them. Each is now
+// a TUBE: the sphere-swept volume round its posed chain, outlined and
+// filled exactly as the palm it hangs from.
+//
+// The silhouette is EXACT, not approximated. An orthographic projection
+// takes a sphere to a circle of its own radius, so the outline of a swept
+// sphere is simply the projected centerline offset by the radius — the
+// ribbon the pen already extrudes (`ribbonEdges`), closed with a round cap
+// at the tip.
+//
+// A bent finger's tube is not CONVEX, so it cannot ride massSilhouettes'
+// hull the way the palm and the foot boxes do: the hull of a curled finger
+// fills the curl in. The outline follows the true boundary instead, and
+// the solid is cut into short convex PIECES along the tube — each flat in
+// z, which is what both fill paths are owed (the GL fan, and the bake's
+// point-in-convex occlusion test).
+
+/** The tube's radius at the base knuckle and at the fingertip, rig units,
+ *  tapering the way a finger does. What SIZES it is the gap between
+ *  neighbouring finger bones — 1.2 where they run closest, just past the
+ *  knuckle rim, widening to nearly 1.9 at the tips. A radius past half of
+ *  that would have two tubes genuinely overlapping there, drawing each
+ *  other's outline through their own fill; at these the tubes only touch,
+ *  so the pen lays one shared crease between the fingers at the rim and
+ *  clear paper between them everywhere out to the tips. */
+const FINGER_R = { base: 0.56, tip: 0.46 };
+
+/** How far the SOLID runs back past its base knuckle, into the palm. The
+ *  filled finger has to root INSIDE the hand: bent at the pin, a palm
+ *  whose fingers merely touched its rim would open a gap along it.
+ *
+ *  The drawn OUTLINE stops at the knuckle itself, and closes across the
+ *  finger there — the crease a hand is drawn with. Carrying it back with
+ *  the fill instead left every finger's root scribbled across the inside
+ *  of the palm: a solid in front of the palm's own fill, so nothing
+ *  covered it. */
+const FINGER_ROOT = 0.9;
+
+/** Corner-cutting passes over the finger's four-joint chain. The bones
+ *  give three straight spans meeting at two sharp creases; each pass
+ *  replaces every crease with the chord across it, so two passes carry a
+ *  knuckle round in four short steps. That is what makes a curled finger
+ *  read as one bending tube instead of three sticks hinged together — the
+ *  vertices a smooth bend needs — and 19 spans is still an eighth of what
+ *  one body mass's outline costs to draw. */
+const FINGER_SMOOTH = 2;
+
+/** Spans per convex piece of the filled solid. Short enough that a piece
+ *  spanning a knuckle's arc is convex to within a fraction of the tube's
+ *  own width, long enough that a hand is ten fills and not a hundred —
+ *  every one of which a vector bake carries as its own subpath. */
+const FINGER_PIECE = 6;
+
+/** Chords in the tip's round cap. */
+const FINGER_CAP = 5;
+
+/** The pen's resample step along a finger's outline: hand scale, not body
+ *  scale (see {@link pen}). Ten closed outlines are the costliest thing
+ *  the hands ask of the pen — every sample carries four sines — so this is
+ *  as coarse as the tip's cap will bear and no finer. */
+const FINGER_STEP = 0.5;
+
+/** How far behind its outline a finger's solid sits — far less than the
+ *  body's {@link FILL_BIAS}, because at hand scale 1.2 rig units is the
+ *  whole width of a finger: pushed back that far, a fingertip curled
+ *  toward the viewer would sink behind the finger beside it. */
+const FINGER_FILL_BIAS = 0.45;
 /** Foot VOLUMES, tapered rectangular solids in the foot chain's splayed
  *  rest frames: the BODY spans heel to ball (hung on the ball joint, so a
  *  swing at the heel pitches it about the ankle and a swing at the ball
@@ -556,7 +637,8 @@ function ovalGuide(
  *    the face's surface, slide around it as the figure turns, and
  *    disappear when the head faces away;
  *  - a small hand-drawn circle at each limb joint;
- *  - triangle hands and splayed wedge feet, riding their joints.
+ *  - triangle hands and splayed wedge feet, riding their joints;
+ *  - each finger as a solid tube round its posed chain.
  */
 /** 2D convex hull (monotone chain), counter-clockwise. The masses are
  *  convex volumes, so the hull of their projected corners IS their
@@ -663,6 +745,138 @@ function massSilhouettes(
   ];
 }
 
+/** One finger's solid, in view space: the tube's closed silhouette for the
+ *  pen, and the convex pieces that fill it. */
+interface FingerSolid {
+  id: string;
+  /** The tube's boundary — one edge out, round the tip, the other edge
+   *  back. NOT convex once the finger curls, which is the whole reason
+   *  this is not a {@link MassSilhouette}. */
+  guide: P2[];
+  /** The solid itself: short convex slices of the tube, each flat in z and
+   *  sitting {@link FINGER_FILL_BIAS} behind the outline. */
+  pieces: InkFill[];
+}
+
+/** Chaikin corner cutting with the ENDS PINNED: each pass replaces every
+ *  interior corner with the chord across it. Pinning matters — the chain's
+ *  last point is the fingertip, and a tip that drifted off its joint would
+ *  leave the fingertip's ring and the tube's end in different places. */
+function smoothChain(pts: readonly P2[], passes: number): P2[] {
+  const cut = (a: P2, b: P2, t: number): P2 => ({
+    x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t,
+  });
+  let cur = [...pts];
+  for (let k = 0; k < passes; k++) {
+    const next: P2[] = [cur[0]];
+    for (let i = 0; i < cur.length - 1; i++) {
+      next.push(cut(cur[i], cur[i + 1], 0.25), cut(cur[i], cur[i + 1], 0.75));
+    }
+    next.push(cur[cur.length - 1]);
+    cur = next;
+  }
+  return cur;
+}
+
+/** One convex slice of a tube, flattened to a single depth the way every
+ *  body mass's fill is. The depth is the slice's NEAREST point pushed back
+ *  by the bias, so every boundary point of the piece — which is to say
+ *  every sample of the outline drawn over it — beats its own fill. */
+function tubeSlice(id: string, ring: readonly P2[]): InkFill {
+  let z = Infinity;
+  for (const p of ring) z = Math.min(z, p.z);
+  return {
+    id,
+    points: convexHull(ring).map((p) => ({ x: p.x, y: p.y, z: z - FINGER_FILL_BIAS })),
+  };
+}
+
+/** The tube round one finger's chain of projected joints (base knuckle →
+ *  tip): root it inside the palm, round the creases, offset the centerline
+ *  by the tapering radius, and cap the tip. */
+function fingerTube(id: string, chain: readonly P2[]): FingerSolid {
+  // One step back down the base bone, so the tube starts inside the palm
+  // rather than butted against its rim.
+  const [a, b] = chain;
+  const back = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+  const root: P2 = {
+    x: a.x + ((a.x - b.x) / back) * FINGER_ROOT,
+    y: a.y + ((a.y - b.y) / back) * FINGER_ROOT,
+    z: a.z,
+  };
+  const spine = smoothChain([root, ...chain], FINGER_SMOOTH);
+  const n = spine.length;
+  // The centerline as pen samples, the radius riding in the half-width
+  // slot — so the tube's edges come out of the same ribbon geometry the
+  // strokes are extruded with, and a tube and a stroke can never disagree
+  // about what "offset by w" means.
+  const pts: InkPoint[] = spine.map((p, i) => ({
+    ...p, w: FINGER_R.base + (FINGER_R.tip - FINGER_R.base) * (i / (n - 1)),
+  }));
+  const left: P2[] = [];
+  const right: P2[] = [];
+  for (let i = 0; i < n; i++) {
+    const [l, r] = ribbonEdges(pts, i);
+    left.push({ x: l.x, y: l.y, z: pts[i].z });
+    right.push({ x: r.x, y: r.y, z: pts[i].z });
+  }
+  // The round tip: the projected hemisphere closing the swept sphere — a
+  // half turn from one edge, through the finger's own direction, to the
+  // other. (The normal ribbonEdges laid down is the radius vector; turned
+  // a quarter, it IS the direction of travel, radius long.)
+  const tip = pts[n - 1];
+  const nx = left[n - 1].x - tip.x;
+  const ny = left[n - 1].y - tip.y;
+  const cap: P2[] = [];
+  for (let k = 1; k < FINGER_CAP; k++) {
+    const t = (k / FINGER_CAP) * Math.PI;
+    const cos = Math.cos(t);
+    const sin = Math.sin(t);
+    cap.push({ x: tip.x + nx * cos + ny * sin, y: tip.y + ny * cos - nx * sin, z: tip.z });
+  }
+  const pieces: InkFill[] = [];
+  for (let i = 0; i < n - 1; i += FINGER_PIECE) {
+    const j = Math.min(n - 1, i + FINGER_PIECE);
+    pieces.push(tubeSlice(`${id}-${i}`, [...left.slice(i, j + 1), ...right.slice(i, j + 1)]));
+  }
+  pieces.push(tubeSlice(`${id}-tip`, [left[n - 1], ...cap, right[n - 1]]));
+  // The outline picks the tube up at the KNUCKLE — the first sample out of
+  // the palm — and closes across it there; the fill keeps the root.
+  const g = knuckleSample(spine);
+  return {
+    id,
+    guide: [...left.slice(g), ...cap, ...right.slice(g).reverse()],
+    pieces,
+  };
+}
+
+/** The first sample of a finger's centerline at or past its base knuckle —
+ *  where the drawn outline picks the tube up, the root before it being the
+ *  part buried in the palm. */
+function knuckleSample(spine: readonly P2[]): number {
+  let run = 0;
+  for (let i = 1; i < spine.length; i++) {
+    run += Math.hypot(spine[i].x - spine[i - 1].x, spine[i].y - spine[i - 1].y);
+    if (run >= FINGER_ROOT) return i;
+  }
+  return 0; // a finger foreshortened to nothing: draw what there is
+}
+
+/** Every finger of both hands as a solid tube, in the view frame. */
+function fingerSolids(world: WorldJoints, turn: TurnLike): FingerSolid[] {
+  const { J } = frameOf(world, turn);
+  const out: FingerSolid[] = [];
+  for (const side of ['L', 'R'] as const) {
+    for (const name of FINGER_NAMES) {
+      out.push(fingerTube(
+        `finger-${name}${side}`,
+        [0, 1, 2, 3].map((i) => J(`${name}${side}${i}` as JointId)),
+      ));
+    }
+  }
+  return out;
+}
+
 /** The projection helpers strokes and fills share: world → view (`P`), a
  *  joint's view position (`J`), and a local offset carried by a joint's
  *  posed frame (`L`). */
@@ -687,6 +901,7 @@ export function sketchInk(
   pose: FiggiePose,
   turn: TurnLike,
   world: WorldJoints = solveWorld(pose),
+  fingers: readonly FingerSolid[] = fingerSolids(world, turn),
 ): InkStroke[] {
   const { q, P, J } = frameOf(world, turn);
 
@@ -776,19 +991,14 @@ export function sketchInk(
     out.push(pen(`joint-${joint}`, ovalGuide(c.x, c.y, c.z, r, r, 12), true, w ?? CIRCLE_W));
   }
 
-  // Fingers: one tapered stroke per finger, drawn as a polyline through
-  // its whole chain — base knuckle on the palm rim, then the three posed
-  // segments — so a curled finger draws curled at every knuckle. (The
-  // palm solids and foot boxes are masses; massSilhouettes draws them.)
-  for (const side of ['L', 'R'] as const) {
-    for (const name of FINGER_NAMES) {
-      out.push(pen(
-        `finger-${name}${side}`,
-        [0, 1, 2, 3].map((i) => J(`${name}${side}${i}` as JointId)),
-        false,
-        FINGER_W,
-      ));
-    }
+  // Fingers: the OUTLINE of each finger's solid tube, traced round its
+  // posed chain — base knuckle on the palm rim, then the three posed
+  // segments — so a curled finger draws as a tube curling at every
+  // knuckle. sketchFills puts the solid inside it. The pen resamples at
+  // hand scale here: a fingertip's cap is barely a rig unit across, and
+  // the body's step would cut the round off it.
+  for (const f of fingers) {
+    out.push(pen(f.id, f.guide, true, FINGER_W, FINGER_STEP));
   }
 
   return out;
@@ -812,11 +1022,16 @@ export function sketchInk(
  * beside it. The fingertip rings are left hollow: they are end-effector
  * marks rather than drawn joints, and at 0.45 units they would clip more
  * than they cover.
+ *
+ * The FINGERS are solids too — one tube each, in convex slices (see
+ * {@link fingerTube}) — so a hand hides what passes behind it the way the
+ * palm it hangs off always has.
  */
 export function sketchFills(
   pose: FiggiePose,
   turn: TurnLike,
   world: WorldJoints = solveWorld(pose),
+  fingers: readonly FingerSolid[] = fingerSolids(world, turn),
 ): InkFill[] {
   const { J } = frameOf(world, turn);
   const headC = J('head');
@@ -839,6 +1054,9 @@ export function sketchFills(
       const c = J(joint);
       return { id: `joint-${joint}`, points: ovalGuide(c.x, c.y, c.z - FILL_BIAS, r, r, 12) };
     }),
+    // The fingers, each tube in convex slices — a hand's five solids, like
+    // every other volume the figure is built from.
+    ...fingers.flatMap((f) => f.pieces),
   ];
 }
 
@@ -860,8 +1078,12 @@ export function buildInkDraw(
   activeJoint: JointId | null,
 ): InkDraw {
   const world = solveWorld(pose);
-  const strokes = sketchInk(pose, turn, world);
-  const fills = fillBatch(sketchFills(pose, turn, world));
+  // The finger tubes are the one piece of geometry BOTH halves need, and
+  // the priciest the hands build: made once here, handed to each (the way
+  // the solved world already is).
+  const fingers = fingerSolids(world, turn);
+  const strokes = sketchInk(pose, turn, world, fingers);
+  const fills = fillBatch(sketchFills(pose, turn, world, fingers));
   if (!activeJoint) return { main: inkBatch(strokes), fills, accent: null };
   const own = strokes.find((s) => s.id === `joint-${activeJoint}`);
   const marker = own ?? (() => {
