@@ -62,9 +62,9 @@ export interface RestJoint {
 /** The figure's height in rig units — the scale everything else is in. */
 export const RIG_HEIGHT = 100;
 
-/** The hand's reach, wrist to middle fingertip, rig units — what the
- *  "palm big enough on screen" zoom gate for fine targets measures.
- *  (= the middle tip's base-table reach × FINGER_REACH.) */
+/** The hand's reach, wrist to middle fingertip, rig units — the figure's
+ *  own measure of how far a hand extends. (= the middle tip's base-table
+ *  reach × FINGER_REACH.) */
 export const HAND_SPAN = 11.3;
 
 /** How far each foot splays outward from straight-ahead (radians about
@@ -292,10 +292,12 @@ export interface DragTarget {
   kind: DragKind;
   /** ik2 only: the two posable joints the solve writes (chain root first). */
   chain?: [JointId, JointId];
-  /** FINE detail (fingers, the heel of the foot): offered only when the
-   *  host says the figure is big enough on screen to pick one of these
-   *  from its neighbours — see {@link HAND_SPAN}; hit tests skip fine
-   *  targets otherwise, and no knob is drawn for them. */
+  /** FINE detail (fingers, the heel of the foot): a joint packed so close
+   *  to its neighbours that a thumb-wide capture radius would swallow
+   *  them. It is grabbed at any size, but only NEAR ITSELF — within its
+   *  own drawn bone ({@link grabRadius}) — so a press meant for the wrist
+   *  or the ankle still lands there. No knob is drawn for one; the drawn
+   *  finger and foot are the affordance, as they are for the ball. */
   fine?: true;
   /** Grabbable at any size, but DRAWS NO BEAD — for a joint that sits so
    *  close to its neighbours that a third knob between theirs would read
@@ -331,29 +333,64 @@ export const DRAG_TARGETS: readonly DragTarget[] = [
   // The BALL swings about the heel, lifting the front of the foot.
   //
   // The HEEL is FINE, like the fingers: it sits directly under the ankle
-  // (the L's upright is the shortest bone in the figure), so at ordinary
-  // sizes it can only steal presses meant for the ankle. It separates
-  // once the host says the figure reads big.
+  // (the L's upright is the shortest bone in the figure), so a full thumb
+  // radius there would swallow every press meant for the ankle. It
+  // captures within its own short bone instead.
   //
-  // The BALL is not. Lifting the front of the foot is an everyday pose —
-  // a foot flat, on tiptoe, or rolling between the two — and gating it on
-  // zoom meant the one bend the foot is FOR could only be reached by
-  // pushing in first, while the toe beside it answered at any size. It
-  // draws no bead, though: the foot's three joints project two to four
-  // rig units apart face-on, so a third knob between the ankle's and the
-  // toe's would merge with both. The foot is the affordance.
+  // The BALL is not even that. Lifting the front of the foot is an
+  // everyday pose — a foot flat, on tiptoe, or rolling between the two —
+  // and it stands far enough from both its neighbours to take a full
+  // thumb. It draws no bead, though: the foot's three joints project two
+  // to four rig units apart face-on, so a third knob between the ankle's
+  // and the toe's would merge with both. The foot is the affordance.
   { joint: 'heelL', kind: 'fk', fine: true },
   { joint: 'heelR', kind: 'fk', fine: true },
   { joint: 'ballL', kind: 'fk', noKnob: true },
   { joint: 'ballR', kind: 'fk', noKnob: true },
-  // Every posable finger segment, zoom-gated. Not the wrist hinges: they
-  // are posed by a slider, never grabbed (see WRIST_HINGE_IDS).
+  // Every posable finger segment, each capturing within its own knuckle
+  // bone. Not the wrist hinges: they are posed by a slider, never grabbed
+  // (see WRIST_HINGE_IDS).
   ...SKELETON.filter((j) => j.posable && FINGER_JOINT_IDS.has(j.id) && !WRIST_HINGE_IDS.has(j.id))
     .map((j): DragTarget => ({ joint: j.id, kind: 'fk', fine: true })),
 ];
 
 export function dragTargetFor(joint: JointId): DragTarget | undefined {
   return DRAG_TARGETS.find((t) => t.joint === joint);
+}
+
+/** How much of its OWN drawn bone a fine target captures: HALF, so the two
+ *  joints at the ends of one knuckle bone split it exactly between them —
+ *  no overlap, no gap, and the affordance is precisely the stretch of
+ *  drawn finger that joint owns. */
+export const FINE_GRAB_SHARE = 0.5;
+
+/**
+ * How near a press must land to grab one target, in whatever unit the
+ * caller measures in — screen px for the canvas, page cells for the
+ * inline editor. A coarse joint takes the whole `thumb` radius. A FINE one
+ * (a finger segment, the heel) takes half of its own bone AS DRAWN, capped
+ * by the thumb.
+ *
+ * That replaces the zoom gate fine targets used to sit behind — offered
+ * only once the host declared the hand big on screen, which meant a
+ * finger, drawn plainly on the page, simply did not answer a press at
+ * ordinary sizes. The trouble a gate was hiding is real, though: at page
+ * size five fingers land inside one thumb radius of the wrist, and
+ * whichever happened to be nearest would steal the press. Sizing the
+ * radius by the bone solves that without the cliff — a finger drawn 8 px
+ * long answers only within 4 px of itself, so an aimed press finds it and
+ * a loose one still finds the wrist, and as the hand is zoomed up the
+ * radius grows smoothly into a full thumb target. It is the rule the BALL
+ * already lives by, made proportional: the flesh is the affordance.
+ *
+ * `boneSpan` is the distance from the target's joint to its parent as
+ * projected on screen. Zero (a bone pointing straight at the viewer, a
+ * rootless joint) leaves a fine target unreachable, which is right: there
+ * is nothing drawn there to aim at.
+ */
+export function grabRadius(target: DragTarget, boneSpan: number, thumb: number): number {
+  if (!target.fine) return thumb;
+  return Math.min(thumb, FINE_GRAB_SHARE * Math.max(0, boneSpan));
 }
 
 // ── Flesh ───────────────────────────────────────────────────────────

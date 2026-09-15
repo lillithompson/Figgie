@@ -23,8 +23,9 @@ export {
 } from './quat';
 export type { Quat } from './quat';
 export {
-  BODY_BLOBS, BODY_CAPSULES, DRAG_TARGETS, HAND_SPAN, JOINT_IDS, MAX_REACH, PUSH_ROOM,
-  RIG_HEIGHT, ROOT_REST_Y, SKELETON, STAGE_REACH, dragTargetFor, jointBound, knobRadius,
+  BODY_BLOBS, BODY_CAPSULES, DRAG_TARGETS, FINE_GRAB_SHARE, HAND_SPAN, JOINT_IDS, MAX_REACH,
+  PUSH_ROOM, RIG_HEIGHT, ROOT_REST_Y, SKELETON, STAGE_REACH, dragTargetFor, grabRadius,
+  jointBound, knobRadius, restJoint,
 } from './skeleton';
 export type { DragTarget, JointId } from './skeleton';
 export { posePrimitives, projectSilhouette } from './primitives';
@@ -41,6 +42,6 @@ export type { HeadShape, RigSpin, Side, SpineShape } from './shape';
 export type { InkBatch, InkDraw, InkFill, InkPoint, InkPoly, InkStroke } from './ink';
 export { fitStage, projectTurn, projectYaw, STAGE, turnQuat } from './view';
 export type { Fit, Turn, TurnLike } from './view';
-export { hitTest, HIT_RADIUS_PX } from './hit';
+export { boneSpan, hitTest, HIT_RADIUS_PX } from './hit';
 export { DEFAULT_COLORS } from './render';
 export type { RigColors, RigShader } from './render';

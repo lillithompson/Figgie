@@ -13,7 +13,7 @@
 // no loop to fall behind.
 
 import { FiggiePose, defaultPose, poseEquals, resolveDrag, sanitizePose, solveWorld } from './pose';
-import { HAND_SPAN, JointId } from './skeleton';
+import { JointId } from './skeleton';
 import { Hit, hitTest } from './hit';
 import { buildInkDraw } from './ink';
 import { posePrimitives } from './primitives';
@@ -158,8 +158,7 @@ export function createFiggie(canvas: HTMLCanvasElement, opts: FiggieOptions = {}
     const rect = canvas.getBoundingClientRect();
     // Fingertips only when the hand reads: its span over a quarter of the
     // canvas's short side.
-    const fine = HAND_SPAN * fit.scale > 0.25 * Math.min(cssWidth, cssHeight);
-    const hit = hitTest(pose, turn, fit, e.clientX - rect.left, e.clientY - rect.top, fine);
+    const hit = hitTest(pose, turn, fit, e.clientX - rect.left, e.clientY - rect.top);
     if (!hit) return;
     grab = hit;
     canvas.setPointerCapture?.(e.pointerId);

@@ -71,11 +71,12 @@ export function posePrimitives(
   }
   for (const t of DRAG_TARGETS) {
     // Fine targets (fingertips, the heel) draw no knob: five wooden beads
-    // per hand would clutter every view for joints only grabbable zoomed
-    // in, and a bead under the ankle's would only crowd it. Nor does the
-    // ball, which IS grabbable at any size but sits between two knobs
+    // per hand would clutter every view, and a bead under the ankle's
+    // would only crowd it. Nor does the ball, which sits between two knobs
     // close enough that a third would merge with them (see noKnob). The
-    // finger and the foot themselves are the affordance there.
+    // finger and the foot themselves are the affordance there — which is
+    // why each of them captures a press within its own drawn bone
+    // (grabRadius) rather than a thumb's reach of beadless flesh.
     if (t.fine || t.noKnob) continue;
     const j = world[t.joint];
     out.push({ kind: 'knob', joint: t.joint, cx: j.x, cy: j.y, cz: j.z, radius: knobRadius(t.joint) });

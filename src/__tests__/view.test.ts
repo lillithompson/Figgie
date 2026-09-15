@@ -5,7 +5,7 @@
  */
 
 import { defaultPose, resolveDrag, solveWorld, viewAxis } from '../pose';
-import { RIG_HEIGHT, dragTargetFor } from '../skeleton';
+import { RIG_HEIGHT, dragTargetFor, grabRadius } from '../skeleton';
 import { hitTest, HIT_RADIUS_PX } from '../hit';
 import { posePrimitives, projectSilhouette } from '../primitives';
 import { STAGE, fitStage, projectTurn, projectYaw, turnQuat } from '../view';
@@ -174,12 +174,10 @@ describe('hitTest', () => {
     // through to the host, where dragging the object moves it like any
     // other object in the scene.
     const hips = screenOf('root');
-    for (const fine of [false, true]) {
-      const hit = hitTest(defaultPose(), 0, fit, hips.x, hips.y, fine);
-      // Whatever it lands on is a joint to POSE — never the figure itself.
-      expect(hit?.target.joint).not.toBe('root');
-      expect(hit?.target.kind).not.toBe('translate');
-    }
+    const hit = hitTest(defaultPose(), 0, fit, hips.x, hips.y);
+    // Whatever it lands on is a joint to POSE — never the figure itself.
+    expect(hit?.target.joint).not.toBe('root');
+    expect(hit?.target.kind).not.toBe('translate');
     // Here it is the spine just above, so a press on the hips still does
     // the posing thing rather than nothing at all.
     expect(hitTest(defaultPose(), 0, fit, hips.x, hips.y)?.target.joint).toBe('spine');
@@ -192,30 +190,50 @@ describe('hitTest', () => {
     expect(hit?.target.joint).toBe('wristR');
   });
 
-  it('offers hand joints only through the fine gate', () => {
-    // Without `fine`, a press on the hand can only ever mean the WRIST: a
-    // press on the knuckle line inside the wrist's capture grabs the
-    // wrist, and one out at the fingertip (past that capture) grabs
-    // nothing at all.
-    const base = screenOf('middleL0');
-    expect(hitTest(defaultPose(), 0, fit, base.x, base.y)?.target.joint).toBe('wristL');
+  it('offers a finger to a press ON it, and the hand to every other press', () => {
+    // A finger answers at ANY size — it is drawn on the page, and a drawn
+    // thing that refuses a press is a broken affordance — but only within
+    // its own bone, which at this size is a couple of px. So a press dead
+    // on the fingertip grabs the fingertip…
     const tip = screenOf('middleL3');
-    expect(hitTest(defaultPose(), 0, fit, tip.x, tip.y)).toBeNull();
-    // The gate opens the hand's own joints to the same presses — at the
-    // knuckle line that is the palm-bend effector, at the tip the finger.
-    expect(hitTest(defaultPose(), 0, fit, base.x, base.y, true)?.target.joint)
-      .toBe('knuckL');
-    expect(hitTest(defaultPose(), 0, fit, tip.x, tip.y, true)?.target.joint).toBe('middleL3');
+    expect(hitTest(defaultPose(), 0, fit, tip.x, tip.y)?.target.joint).toBe('middleL3');
+    // …and one a thumb's width off it does not: the fingers cannot steal
+    // the presses meant for the hand they hang on.
+    const near = hitTest(defaultPose(), 0, fit, tip.x + HIT_RADIUS_PX / 2, tip.y);
+    expect(near?.target.joint ?? null).not.toBe('middleL3');
+    // At the knuckle line, where five finger bones start, the press still
+    // means the palm-bend effector rather than a lottery between them.
+    const base = screenOf('middleL0');
+    expect(hitTest(defaultPose(), 0, fit, base.x, base.y)?.target.joint).toBe('knuckL');
   });
 
-  it('grabs every corner of the L one from another once the gate opens', () => {
-    // The foot's four joints, each pressed dead on: with the gate open
-    // every one answers for itself — the two inside the foot are grabbable,
-    // and grabbing one does not disturb the rest.
+  it('a finger drawn BIGGER captures wider — no cliff, no gate', () => {
+    // The capture is half the bone as drawn, so it scales with the figure
+    // instead of switching on at a threshold: zoom the same hand up and
+    // the same joint answers a press that was too loose before.
+    const small = fitStage((STAGE.maxX - STAGE.minX) * px, (STAGE.maxY - STAGE.minY) * px);
+    const big = fitStage((STAGE.maxX - STAGE.minX) * px * 8, (STAGE.maxY - STAGE.minY) * px * 8);
+    const at = (f: typeof small) => {
+      const w = solveWorld(defaultPose());
+      const j = w.middleL3;
+      const p = projectYaw(j.x, j.y, j.z, 0, w.root.x);
+      return { x: f.toScreenX(p.px), y: f.toScreenY(p.py) };
+    };
+    const a = at(small);
+    const b = at(big);
+    expect(hitTest(defaultPose(), 0, small, a.x + 6, a.y)?.target.joint ?? null)
+      .not.toBe('middleL3');
+    expect(hitTest(defaultPose(), 0, big, b.x + 6, b.y)?.target.joint).toBe('middleL3');
+  });
+
+  it('grabs every corner of the L one from another', () => {
+    // The foot's four joints, each pressed dead on: every one answers for
+    // itself — the two inside the foot included — and grabbing one does
+    // not disturb the rest.
     const pose = defaultPose();
     for (const joint of ['ankleL', 'heelL', 'ballL', 'toeL'] as const) {
       const s = screenOf(joint);
-      expect(hitTest(pose, 0, fit, s.x, s.y, true)?.target.joint).toBe(joint);
+      expect(hitTest(pose, 0, fit, s.x, s.y)?.target.joint).toBe(joint);
     }
     // And each does its own thing: the ankle carries the leg (IK up the
     // chain), the heel pitches the whole foot about the ankle, the ball
@@ -226,16 +244,16 @@ describe('hitTest', () => {
     expect(dragTargetFor('toeL')!.kind).toBe('ik2');
   });
 
-  it('keeps the HEEL behind the gate — it sits right under the ankle', () => {
+  it('keeps the HEEL to its own short bone — it sits right under the ankle', () => {
     // The L's upright is the shortest bone in the figure, so face-on the
     // heel projects a couple of rig units below the ankle, inside its
-    // knob. Offered at that size it would only steal the ankle's presses.
+    // knob. Pressed dead on it answers; anywhere else in that knob the
+    // ankle does, or it would swallow every press meant for the leg.
     const s = screenOf('heelL');
-    const joint = hitTest(defaultPose(), 0, fit, s.x, s.y)?.target.joint;
-    expect(joint).not.toBe('heelL');
-    expect(['ankleL', 'toeL', 'ballL']).toContain(joint);
-    // Zoomed in, it answers for itself.
-    expect(hitTest(defaultPose(), 0, fit, s.x, s.y, true)?.target.joint).toBe('heelL');
+    expect(hitTest(defaultPose(), 0, fit, s.x, s.y)?.target.joint).toBe('heelL');
+    const ankle = screenOf('ankleL');
+    const off = { x: (s.x + ankle.x) / 2, y: (s.y + ankle.y) / 2 };
+    expect(hitTest(defaultPose(), 0, fit, off.x, off.y)?.target.joint).not.toBe('heelL');
   });
 
   it('grabs the BALL from any distance, like the toe beside it', () => {
@@ -244,7 +262,10 @@ describe('hitTest', () => {
     // zoom first while the toe next to it answers at any size.
     const s = screenOf('ballL');
     expect(hitTest(defaultPose(), 0, fit, s.x, s.y)?.target.joint).toBe('ballL');
-    expect(hitTest(defaultPose(), 0, fit, s.x, s.y, true)?.target.joint).toBe('ballL');
+    // It is not a FINE target, so it captures a whole thumb rather than
+    // its own bone — whatever the figure's size on screen.
+    expect(grabRadius(dragTargetFor('ballL')!, 0, HIT_RADIUS_PX)).toBe(HIT_RADIUS_PX);
+    expect(grabRadius(dragTargetFor('heelL')!, 0, HIT_RADIUS_PX)).toBe(0);
     // …and it bends the foot at the ball rather than carrying the leg.
     expect(hitTest(defaultPose(), 0, fit, s.x, s.y)?.target.kind).toBe('fk');
   });
