@@ -51,6 +51,13 @@ export interface FiggieHandle {
   setYaw(yaw: TurnLike): void;
   getShader(): RigShader;
   setShader(shader: RigShader): void;
+  /** Restyle the figure: the named colours are merged over the ones it is
+   *  already wearing, so a host can change the sketch's `ink` and `paper`
+   *  (or the classic mannequin's `body`) without restating the rest — and
+   *  without tearing the GL context down, which is what makes a colour
+   *  slider a live drag rather than a remount per frame. A call that
+   *  changes nothing schedules no frame. */
+  setColors(next: Partial<RigColors>): void;
   /** Back to the T-pose (turn untouched — the slider owns it). */
   reset(): void;
   /** Light one joint's knob in the accent colour (a host-driven grab);
@@ -217,6 +224,21 @@ export function createFiggie(canvas: HTMLCanvasElement, opts: FiggieOptions = {}
     setShader(next: RigShader) {
       shader = next === 'npr' ? 'npr' : 'classic';
       requestRender();
+    },
+    setColors(next: Partial<RigColors>) {
+      let changed = false;
+      for (const key of Object.keys(next) as (keyof RigColors)[]) {
+        const rgb = next[key];
+        if (!rgb) continue;
+        const cur = colors[key];
+        if (cur[0] === rgb[0] && cur[1] === rgb[1] && cur[2] === rgb[2]) continue;
+        colors[key] = [rgb[0], rgb[1], rgb[2]];
+        changed = true;
+      }
+      // Hosts re-push their colours on every record change (a pose commit
+      // carries the whole record), so the guard is what keeps an idle rig
+      // idle: no repaint unless a channel actually moved.
+      if (changed) requestRender();
     },
     reset() {
       pose = defaultPose();
