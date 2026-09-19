@@ -11,7 +11,7 @@ import {
   FINGER_COLUMN, FIST_RANGE, HAND_STRAIGHT_AT, HEAD_COLUMN, HEAD_RANGE, SPINE_BRANCH,
   SPINE_COLUMN, SPINE_RANGE, curlHand,
   bendBall, bendWrist, flexFoot, rotateRig, shapeHead, shapeSpine, centered, spreadHand,
-  twistAnkle, twistWrist, TWIST_RANGE,
+  twistAnkle, twistWrist, TWIST_RANGE, POLE_RANGE, poleChain,
 } from '../shape';
 import { defaultPose, poseEquals, resolveDrag, solveWorld } from '../pose';
 import { Quat, quatRotate } from '../quat';
@@ -834,5 +834,136 @@ describe('twistWrist / twistAnkle', () => {
     // Curl and flex still own their own joints, so a part's sliders stack.
     const both = flexFoot(twistAnkle(defaultPose(), 'L', 0.5), 'L', 1);
     expect(Object.keys(both.angles).sort()).toEqual(['ankleL', 'ballL', 'heelL']);
+  });
+});
+
+describe('poleChain — the elbow swings, the ends hold still', () => {
+  /** A chain bent out of the plane, so the middle joint is genuinely off
+   *  the axis its ends define and has somewhere to travel. */
+  const bent = (): ReturnType<typeof defaultPose> => {
+    const p = defaultPose();
+    // Swing the forearm up at the elbow: the arm is no longer straight, so
+    // shoulder, elbow and wrist make a real triangle.
+    return { ...p, angles: { ...p.angles, wristL: [0, 0, Math.sin(0.6), Math.cos(0.6)] as Quat } };
+  };
+  const at = (pose: ReturnType<typeof defaultPose>, id: JointId) => {
+    const w = solveWorld(pose)[id];
+    return [w.x, w.y, w.z] as const;
+  };
+  const dist = (a: readonly number[], b: readonly number[]) =>
+    Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+
+  it('leaves the pose alone at rest', () => {
+    expect(poseEquals(poleChain(bent(), 'elbow', 'L', 0), bent())).toBe(true);
+    expect(poleChain(defaultPose(), 'elbow', 'L', 0)).toEqual(defaultPose());
+  });
+
+  it('holds BOTH ends of the chain exactly where they were', () => {
+    // The whole point: the shoulder is the pivot and the wrist lies on the
+    // axis, so neither can travel however far the slider goes.
+    const base = bent();
+    for (const t of [-1, -0.5, 0.25, 0.75, 1]) {
+      const turned = poleChain(base, 'elbow', 'L', t);
+      expect(dist(at(turned, 'shoulderL'), at(base, 'shoulderL'))).toBeLessThan(1e-6);
+      expect(dist(at(turned, 'wristL'), at(base, 'wristL'))).toBeLessThan(1e-6);
+    }
+  });
+
+  it('…and MOVES the elbow, which is the one joint off that axis', () => {
+    const base = bent();
+    const moved = poleChain(base, 'elbow', 'L', 0.5);
+    expect(dist(at(moved, 'elbowL'), at(base, 'elbowL'))).toBeGreaterThan(1);
+  });
+
+  it('carries the elbow on a CIRCLE about the axis', () => {
+    // Its distance to the shoulder–wrist line is the circle's radius, and
+    // a rotation about that line cannot change it.
+    const base = bent();
+    const s = at(base, 'shoulderL');
+    const w = at(base, 'wristL');
+    const span = dist(s, w);
+    const radiusOf = (pose: ReturnType<typeof defaultPose>) => {
+      const e = at(pose, 'elbowL');
+      const d: [number, number, number] = [(w[0] - s[0]) / span, (w[1] - s[1]) / span, (w[2] - s[2]) / span];
+      const v: [number, number, number] = [e[0] - s[0], e[1] - s[1], e[2] - s[2]];
+      const along = v[0] * d[0] + v[1] * d[1] + v[2] * d[2];
+      return Math.hypot(v[0] - d[0] * along, v[1] - d[1] * along, v[2] - d[2] * along);
+    };
+    const r0 = radiusOf(base);
+    expect(r0).toBeGreaterThan(1);
+    for (const t of [-0.75, -0.2, 0.3, 0.9]) {
+      expect(radiusOf(poleChain(base, 'elbow', 'L', t))).toBeCloseTo(r0, 6);
+    }
+  });
+
+  it('ADDS its turn, like the spine — so 0 is “as you left it”', () => {
+    // A chain posed by DRAGGING has no pole angle of its own to read
+    // back, so the slider's middle must mean "leave it alone" and not a
+    // canonical angle to snap to. That is why it adds: applied twice it
+    // goes twice as far, and a host feeds it one fixed base for as long as
+    // a set of positions is live (the discipline the spine already keeps).
+    const base = bent();
+    const once = poleChain(base, 'elbow', 'L', 0.4);
+    const twice = poleChain(once, 'elbow', 'L', 0.4);
+    expect(poseEquals(twice, once)).toBe(false);
+    expect(poseEquals(twice, poleChain(base, 'elbow', 'L', 0.8))).toBe(true);
+    // …and from the base, the middle is exactly the base.
+    expect(poseEquals(poleChain(base, 'elbow', 'L', 0), base)).toBe(true);
+    // Including on a chain a DRAG bent: nothing of the reach is lost.
+    const reach = {
+      ...defaultPose(),
+      angles: { elbowL: [0.2, 0.1, 0.3, 0.927] as Quat, wristL: [0, 0, Math.sin(0.6), Math.cos(0.6)] as Quat },
+    };
+    expect(poseEquals(poleChain(reach, 'elbow', 'L', 0), reach)).toBe(true);
+  });
+
+  it('a whole turn of the slider comes back to where it started', () => {
+    // POLE_RANGE is the full circle, so the two ends of the bar are the
+    // same place — which is what makes one bar reach every position.
+    const base = bent();
+    expect(dist(at(poleChain(base, 'elbow', 'L', 1), 'elbowL'),
+      at(poleChain(base, 'elbow', 'L', -1), 'elbowL'))).toBeLessThan(1e-6);
+    expect(POLE_RANGE).toBeCloseTo(Math.PI * 2, 12);
+  });
+
+  it('the far joint ROTATES with the swing, so a hand rides round with it', () => {
+    // "The wrist and shoulder should not move, but they can rotate" — the
+    // hand is carried by its wrist's frame, not left pointing where the
+    // arm no longer is.
+    const base = bent();
+    const turned = poleChain(base, 'elbow', 'L', 0.5);
+    const before = solveWorld(base).wristL.rot;
+    const after = solveWorld(turned).wristL.rot;
+    expect(after.every((v, i) => Math.abs(v - before[i]) < 1e-9)).toBe(false);
+    // …and the fingers travel with it, which is the "natural consequence".
+    expect(dist(at(turned, 'indexL3'), at(base, 'indexL3')))
+      .toBeGreaterThan(0.5);
+  });
+
+  it('does the same for a KNEE, about the hip–ankle axis', () => {
+    const base = { ...defaultPose(), angles: { ankleL: [Math.sin(0.5), 0, 0, Math.cos(0.5)] as Quat } };
+    const turned = poleChain(base, 'knee', 'L', 0.6);
+    expect(dist(at(turned, 'hipL'), at(base, 'hipL'))).toBeLessThan(1e-6);
+    expect(dist(at(turned, 'ankleL'), at(base, 'ankleL'))).toBeLessThan(1e-6);
+    expect(dist(at(turned, 'kneeL'), at(base, 'kneeL'))).toBeGreaterThan(0.5);
+  });
+
+  it('touches nothing but its own chain', () => {
+    const base = bent();
+    const turned = poleChain(base, 'elbow', 'L', 0.7);
+    // The other arm, the legs and the spine are untouched.
+    for (const id of ['elbowR', 'wristR', 'kneeL', 'kneeR', 'spine', 'chest', 'head'] as JointId[]) {
+      expect(turned.angles[id]).toEqual(base.angles[id]);
+    }
+  });
+
+  it('declines a chain folded onto itself, which has no axis to turn about', () => {
+    // Shoulder and wrist in the same place: the line between them has no
+    // direction, so there is no rotation a pole angle could name.
+    const folded = { ...defaultPose(), angles: { wristL: [0, 0, 1, 0] as Quat } };
+    const s = at(folded, 'shoulderL');
+    const w = at(folded, 'wristL');
+    if (dist(s, w) < 1e-6) expect(poleChain(folded, 'elbow', 'L', 0.5)).toBe(folded);
+    else expect(poleChain(folded, 'elbow', 'L', 0.5)).not.toBe(folded);
   });
 });

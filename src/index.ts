@@ -34,11 +34,11 @@ export { buildInkDraw, fillBatch, inkBatch, inkVector, sketchFills, sketchInk } 
 export {
   BALL_BEND_BACK_RANGE, BALL_BEND_RANGE, FINGER_COLUMN, FIST_RANGE, HAND_STRAIGHT_AT,
   HEAD_COLUMN, HEAD_RANGE,
-  RIG_SPIN_RANGE, SPINE_COLUMN, SPINE_RANGE,
+  POLE_RANGE, RIG_SPIN_RANGE, SPINE_COLUMN, SPINE_RANGE,
   SPREAD_RANGE, TWIST_RANGE, WRIST_BEND_RANGE, bendBall, bendWrist, centered, curlHand, flexFoot,
-  rotateRig, shapeHead, shapeSpine, spreadHand, twistAnkle, twistWrist,
+  poleChain, rotateRig, shapeHead, shapeSpine, spreadHand, twistAnkle, twistWrist,
 } from './shape';
-export type { HeadShape, RigSpin, Side, SpineShape } from './shape';
+export type { HeadShape, PoleChain, RigSpin, Side, SpineShape } from './shape';
 export type { InkBatch, InkDraw, InkFill, InkPoint, InkPoly, InkStroke } from './ink';
 export { fitStage, projectTurn, projectYaw, STAGE, turnQuat } from './view';
 export type { Fit, Turn, TurnLike } from './view';

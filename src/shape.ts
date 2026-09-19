@@ -26,10 +26,11 @@
 // has no single "fistness", so a host shows its sliders at rest and only
 // touches the pose once the user moves one.
 
-import { FiggiePose } from './pose';
+import { FiggiePose, solveWorld } from './pose';
 import { FINGER_NAMES, FingerName, FOOT_SPLAY, JointId, restJoint } from './skeleton';
 import {
   QUAT_IDENTITY, Quat, quatFromAxisAngle, quatInv, quatIsIdentity, quatMul, quatNormalize,
+  quatRotate,
 } from './quat';
 
 export type Side = 'L' | 'R';
@@ -606,5 +607,89 @@ function shapeColumn(
     if (Math.abs(q[3]) >= 1 - 1e-9) delete angles[id];
     else angles[id] = q;
   }
+  return { ...pose, angles };
+}
+
+// ── Pole vectors: swinging the middle of a two-bone chain ───────────
+
+/** The two-bone chains whose middle joint a pole slider swings. */
+export type PoleChain = 'elbow' | 'knee';
+
+/** The three joints of a chain: the bone this rotates (the one ENDING at
+ *  the middle joint, so its rotation is the chain's root joint's), and the
+ *  two the axis runs between. */
+function poleChainOf(chain: PoleChain, side: Side): {
+  root: JointId; mid: JointId; end: JointId;
+} {
+  return chain === 'elbow'
+    ? { root: `shoulder${side}` as JointId, mid: `elbow${side}` as JointId, end: `wrist${side}` as JointId }
+    : { root: `hip${side}` as JointId, mid: `knee${side}` as JointId, end: `ankle${side}` as JointId };
+}
+
+/** How far a pole slider carries the middle joint round its axis, radians
+ *  end to end: the WHOLE circle, so one bar reaches every position the
+ *  joint can take without the chain's ends moving at all. */
+export const POLE_RANGE = Math.PI * 2;
+
+/** Below this the chain is folded onto itself — the axis has no direction
+ *  — and there is nothing a pole rotation could mean. */
+const POLE_MIN_SPAN = 1e-6;
+
+/**
+ * Swing the MIDDLE joint of a two-bone chain around the line between the
+ * chain's ends: an elbow orbiting the shoulder–wrist axis, a knee orbiting
+ * the hip–ankle one. `t` −1..1, 0 = the chain as it was handed over.
+ *
+ * This is an IK pole vector, and it is the one control a two-bone chain
+ * has that its drags cannot give. Where the arm REACHES is two degrees of
+ * freedom and a drag sets them; which way the elbow points while reaching
+ * there is the third, and it is invisible to every gesture that moves an
+ * end — a hand held at one spot can have its elbow up, out or tucked, and
+ * nothing but this chooses between them.
+ *
+ * It is computed as a rotation OF THE CHAIN'S ROOT JOINT about that axis,
+ * which is what makes the ends hold still: the far end lies ON the axis,
+ * so the rotation carries it nowhere, and the near end IS the pivot. Only
+ * the middle joint, off the axis, travels — on a circle. The far joint's
+ * FRAME turns with the rotation (it is the same rigid swing), so a hand
+ * rides round with its wrist, which is what a real arm does.
+ *
+ * It ADDS its turn to what the chain already carries, like the spine's and
+ * the head's shapers and for the same reason: the root joint also holds
+ * the reach a drag put there, and a chain posed by dragging has no pole
+ * angle of its own to read back — so `t` of 0 is "as you left it", not a
+ * canonical angle this would snap to. That makes it absolute with respect
+ * to the pose given it and no further: a host must feed it ONE fixed base
+ * for as long as a set of slider positions is live, exactly as it does for
+ * the spine (Figgie's shapers, see this file's header).
+ *
+ * The axis is read off that base, and is invariant under the rotation
+ * anyway — it is the line between two points the rotation does not move —
+ * so a chain can be swung round and round without the axis drifting.
+ */
+export function poleChain(
+  pose: FiggiePose, chain: PoleChain, side: Side, t: number,
+): FiggiePose {
+  const { root, mid, end } = poleChainOf(chain, side);
+  const world = solveWorld(pose);
+  const a = world[root];
+  const b = world[end];
+  const span = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
+  if (span < POLE_MIN_SPAN) return pose;
+  // The axis in the frame the middle bone's rotation composes ONTO — the
+  // root joint's accumulated rotation — since that is the frame the stored
+  // quaternion is written in.
+  const [ax, ay, az] = quatRotate(
+    quatInv(a.rot), (b.x - a.x) / span, (b.y - a.y) / span, (b.z - a.z) / span,
+  );
+  const angles: Angles = { ...pose.angles };
+  const held = angles[mid] ?? QUAT_IDENTITY;
+  // The turn goes on the OUTSIDE — it is about an axis in the parent's
+  // frame, through the chain's near end, so it is applied after whatever
+  // the bone already does rather than in the bone's own turned frame.
+  const turn = quatFromAxisAngle(ax, ay, az, (POLE_RANGE / 2) * centeredValue(t));
+  const out = quatNormalize(quatMul(turn, held));
+  if (quatIsIdentity(out, 1e-6)) delete angles[mid];
+  else angles[mid] = out;
   return { ...pose, angles };
 }
