@@ -261,6 +261,15 @@ export function createFiggie(canvas: HTMLCanvasElement, opts: FiggieOptions = {}
         canvas.removeEventListener('pointercancel', onPointerCancel);
       }
       renderer.dispose();
+      // …and hand the CONTEXT back, not just the objects in it. A browser
+      // keeps only a handful of live WebGL contexts (on iOS, few), and a
+      // dropped one is reclaimed whenever the canvas is collected — which
+      // is to say, not on any schedule the host can count on. A host that
+      // mounts a rig per page (CozyJournal's editor, reused across pages)
+      // could therefore ask for one and be refused, with nothing wrong
+      // except that the ones before it had not been swept up yet.
+      // `loseContext` is the only way to say "done with it" now.
+      (gl.getExtension('WEBGL_lose_context') as { loseContext(): void } | null)?.loseContext();
     },
   };
 }
