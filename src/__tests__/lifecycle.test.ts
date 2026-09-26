@@ -53,7 +53,7 @@ describe('destroy', () => {
 
   it('releases the WebGL context, not just the objects in it', () => {
     const { gl, lost } = fakeGl();
-    const rig = createFiggie(fakeCanvas(gl), { interactive: false, shader: 'npr' });
+    const rig = createFiggie(fakeCanvas(gl), { interactive: false });
     expect(lost()).toBe(0);
     rig.destroy();
     expect(lost()).toBe(1);

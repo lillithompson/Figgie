@@ -1,4 +1,4 @@
-// The Figgie component: hand it a <canvas>, get back a poseable mannequin.
+// The Figgie component: hand it a <canvas>, get back a poseable sketch figure.
 //
 // Fully encapsulated — it owns the WebGL context, the pointer gestures and
 // the render scheduling; the host owns nothing but the canvas element and
@@ -12,13 +12,12 @@
 // small frame per pointer move. That is the whole 90 fps story: there is
 // no loop to fall behind.
 
-import { FiggiePose, defaultPose, poseEquals, resolveDrag, sanitizePose, solveWorld } from './pose';
+import { FiggiePose, defaultPose, poseEquals, resolveDrag, sanitizePose } from './pose';
 import { JointId } from './skeleton';
 import { Hit, hitTest } from './hit';
 import { buildInkDraw } from './ink';
-import { posePrimitives } from './primitives';
-import { DEFAULT_COLORS, RigColors, RigShader, Renderer, createRenderer } from './render';
-import { Fit, TurnLike, fitStage, turnQuat } from './view';
+import { DEFAULT_COLORS, RigColors, Renderer, createRenderer } from './render';
+import { Fit, TurnLike, fitStage } from './view';
 
 export interface FiggieOptions {
   /** Starting pose; anything JSON-shaped is sanitized. Default: T-pose. */
@@ -30,11 +29,6 @@ export interface FiggieOptions {
    *  once more with `live: false` when the finger lifts (the commit). */
   onPoseChange?(pose: FiggiePose, meta: { live: boolean }): void;
   colors?: Partial<RigColors>;
-  /** How the figure is drawn: 'classic' (the lambert-lit mannequin,
-   *  default) or 'npr' (a flat-ink hand-drawn stick figure). Purely a
-   *  render choice — posing, hit-testing and the pose itself are
-   *  identical either way. */
-  shader?: RigShader;
   /** false = the component is a pure RENDERER: it attaches no pointer
    *  listeners and never re-poses itself. For hosts that embed the rig in
    *  their own scene and arbitrate gestures themselves — they drive it
@@ -49,11 +43,9 @@ export interface FiggieHandle {
   setPose(pose: unknown): void;
   getYaw(): TurnLike;
   setYaw(yaw: TurnLike): void;
-  getShader(): RigShader;
-  setShader(shader: RigShader): void;
   /** Restyle the figure: the named colours are merged over the ones it is
    *  already wearing, so a host can change the sketch's `ink` and `paper`
-   *  (or the classic mannequin's `body`) without restating the rest — and
+   *  without restating the rest — and
    *  without tearing the GL context down, which is what makes a colour
    *  slider a live drag rather than a remount per frame. A call that
    *  changes nothing schedules no frame. */
@@ -91,7 +83,6 @@ export function createFiggie(canvas: HTMLCanvasElement, opts: FiggieOptions = {}
 
   let pose = sanitizePose(opts.initialPose ?? defaultPose());
   let turn: TurnLike = opts.initialYaw ?? 0;
-  let shader: RigShader = opts.shader === 'npr' ? 'npr' : 'classic';
   let fit: Fit = fitStage(1, 1);
   let cssWidth = 1;
   let cssHeight = 1;
@@ -106,20 +97,13 @@ export function createFiggie(canvas: HTMLCanvasElement, opts: FiggieOptions = {}
     requestAnimationFrame(() => {
       framePending = false;
       if (destroyed) return;
-      const root = solveWorld(pose).root;
-      const npr = shader === 'npr';
       renderer.draw({
-        primitives: npr ? [] : posePrimitives(pose),
-        // The ink sketch carries its own grab feedback (the accent ring),
-        // so the active joint rides in with the geometry.
-        ink: npr ? buildInkDraw(pose, turn, grab?.target.joint ?? hostActive) : null,
-        turn: turnQuat(turn),
-        pivotX: root.x,
-        pivotY: root.y,
+        // The sketch carries its own grab feedback (the accent ring), so
+        // the active joint rides in with the geometry.
+        ink: buildInkDraw(pose, turn, grab?.target.joint ?? hostActive),
         fit,
         cssWidth,
         cssHeight,
-        activeJoint: grab?.target.joint ?? hostActive,
         colors,
       });
     });
@@ -218,11 +202,6 @@ export function createFiggie(canvas: HTMLCanvasElement, opts: FiggieOptions = {}
     setYaw(next: TurnLike) {
       // Kept as given; turnQuat sanitizes non-finite parts at every use.
       turn = typeof next === 'number' && !Number.isFinite(next) ? 0 : next;
-      requestRender();
-    },
-    getShader: () => shader,
-    setShader(next: RigShader) {
-      shader = next === 'npr' ? 'npr' : 'classic';
       requestRender();
     },
     setColors(next: Partial<RigColors>) {

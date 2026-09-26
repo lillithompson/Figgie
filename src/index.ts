@@ -1,4 +1,4 @@
-// Figgie — a drag-to-pose stick-figure mannequin in a canvas.
+// Figgie — a drag-to-pose stick-figure sketch in a canvas.
 //
 //   const rig = createFiggie(canvas, { onPoseChange });
 //   rig.setYaw(0.4);           // turn about the up axis (view only)
@@ -44,4 +44,4 @@ export { fitStage, projectTurn, projectYaw, STAGE, turnQuat } from './view';
 export type { Fit, Turn, TurnLike } from './view';
 export { boneSpan, hitTest, HIT_RADIUS_PX } from './hit';
 export { DEFAULT_COLORS } from './render';
-export type { RigColors, RigShader } from './render';
+export type { RigColors } from './render';
