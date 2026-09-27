@@ -27,6 +27,7 @@
 // touches the pose once the user moves one.
 
 import { FiggiePose, solveWorld } from './pose';
+import { TurnLike, turnQuat } from './view';
 import { FINGER_NAMES, FingerName, FOOT_SPLAY, JointId, restJoint } from './skeleton';
 import {
   QUAT_IDENTITY, Quat, quatFromAxisAngle, quatInv, quatIsIdentity, quatMul, quatNormalize,
@@ -693,3 +694,81 @@ export function poleChain(
   else angles[mid] = out;
   return { ...pose, angles };
 }
+
+// ── Limb swing: the whole arm or leg, forward out of the screen ─────
+
+/** The limbs a swing slider carries whole. */
+export type Limb = 'arm' | 'leg';
+
+/** How far a limb swing carries the limb, radians end to end: a quarter
+ *  turn each way — from as it stood to pointing straight at the viewer
+ *  (or straight away), which is as far as "forward" goes. */
+export const LIMB_SWING_RANGE = Math.PI;
+
+/**
+ * Swing a whole limb FORWARD, out of the screen toward the viewer (`t` > 0)
+ * or back into it (`t` < 0): an arm about its shoulder, a leg about its
+ * hip. `t` −1..1, 0 = the limb as it was handed over; the ends are a
+ * quarter turn each way.
+ *
+ * It is the one move a limb has that nothing drawn on the page can show
+ * directly. Every drag moves a joint within the view's plane, so a limb
+ * posed by dragging only ever reaches sideways, up or down; bringing a
+ * hand toward the viewer — the arm foreshortening as it comes — needs a
+ * turn about an axis that LIES in that plane. This is that turn: about the
+ * line through the limb's top joint that is square both to the limb and to
+ * the viewer's line of sight, so the limb tips straight toward the viewer
+ * whichever way it happens to point on the page. The elbow's (or knee's)
+ * bend and everything below it ride along rigidly.
+ *
+ * "Out of the screen" is the VIEW's: `turn` is the view the figure is shown
+ * through (view.ts), and the direction toward the viewer is taken back
+ * through it into rig space. A limb pointing straight at the viewer
+ * already has no forward left to go, and is handed back as it was.
+ *
+ * It writes the limb's top bone — the rotation stored at the elbow or knee
+ * joint, the bone that ENDS there — exactly where {@link poleChain} writes
+ * its swing, and like that and the spine's shapers it ADDS its turn to
+ * what the bone already carries: a limb posed by dragging has no forward
+ * angle of its own to read back, so a host must feed it ONE fixed base for
+ * as long as a set of slider positions is live.
+ */
+export function swingLimb(
+  pose: FiggiePose, limb: Limb, side: Side, t: number, turn: TurnLike = 0,
+): FiggiePose {
+  const amount = (LIMB_SWING_RANGE / 2) * centeredValue(t);
+  if (amount === 0) return pose;
+  const { root, mid, end } = poleChainOf(limb === 'arm' ? 'elbow' : 'knee', side);
+  const world = solveWorld(pose);
+  const a = world[root];
+  // The limb's direction: top joint to far end, or — a limb folded back
+  // onto itself — to the middle joint.
+  let reach = world[end];
+  let dx = reach.x - a.x, dy = reach.y - a.y, dz = reach.z - a.z;
+  if (Math.hypot(dx, dy, dz) < LIMB_MIN_SPAN) {
+    reach = world[mid];
+    dx = reach.x - a.x; dy = reach.y - a.y; dz = reach.z - a.z;
+  }
+  // Toward the viewer, in rig space: the view's +z taken back through it.
+  const [vx, vy, vz] = quatRotate(quatInv(turnQuat(turn)), 0, 0, 1);
+  // The axis, square to both: a positive turn about limb × toward carries
+  // the limb toward the viewer.
+  let ax = dy * vz - dz * vy;
+  let ay = dz * vx - dx * vz;
+  let az = dx * vy - dy * vx;
+  const len = Math.hypot(ax, ay, az);
+  if (len < LIMB_MIN_SPAN) return pose;
+  ax /= len; ay /= len; az /= len;
+  // Into the frame the top bone's rotation composes onto, and on the
+  // OUTSIDE of what it holds — poleChain's arrangement, for its reason.
+  const [lx, ly, lz] = quatRotate(quatInv(a.rot), ax, ay, az);
+  const angles: Angles = { ...pose.angles };
+  const held = angles[mid] ?? QUAT_IDENTITY;
+  const out = quatNormalize(quatMul(quatFromAxisAngle(lx, ly, lz, amount), held));
+  if (quatIsIdentity(out, 1e-6)) delete angles[mid];
+  else angles[mid] = out;
+  return { ...pose, angles };
+}
+
+/** Below this a limb has no direction to swing across. */
+const LIMB_MIN_SPAN = 1e-6;

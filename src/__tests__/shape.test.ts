@@ -11,8 +11,9 @@ import {
   FINGER_COLUMN, FIST_RANGE, HAND_STRAIGHT_AT, HEAD_COLUMN, HEAD_RANGE, SPINE_BRANCH,
   SPINE_COLUMN, SPINE_RANGE, curlHand,
   bendBall, bendWrist, flexFoot, rotateRig, shapeHead, shapeSpine, centered, spreadHand,
-  twistAnkle, twistWrist, TWIST_RANGE, POLE_RANGE, poleChain,
+  twistAnkle, twistWrist, TWIST_RANGE, POLE_RANGE, poleChain, LIMB_SWING_RANGE, swingLimb,
 } from '../shape';
+import { turnQuat } from '../view';
 import { defaultPose, poseEquals, resolveDrag, solveWorld } from '../pose';
 import { Quat, quatRotate } from '../quat';
 import { JointId, SKELETON, dragTargetFor } from '../skeleton';
@@ -965,5 +966,81 @@ describe('poleChain — the elbow swings, the ends hold still', () => {
     const w = at(folded, 'wristL');
     if (dist(s, w) < 1e-6) expect(poleChain(folded, 'elbow', 'L', 0.5)).toBe(folded);
     else expect(poleChain(folded, 'elbow', 'L', 0.5)).not.toBe(folded);
+  });
+});
+
+describe('swingLimb — the whole limb tips toward the viewer', () => {
+  const at = (pose: ReturnType<typeof defaultPose>, id: JointId) => {
+    const w = solveWorld(pose)[id];
+    return [w.x, w.y, w.z] as const;
+  };
+  const dist = (a: readonly number[], b: readonly number[]) =>
+    Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  /** The unit direction from one joint to another. */
+  const dir = (pose: ReturnType<typeof defaultPose>, from: JointId, to: JointId) => {
+    const a = at(pose, from), b = at(pose, to);
+    const d = dist(a, b);
+    return [(b[0] - a[0]) / d, (b[1] - a[1]) / d, (b[2] - a[2]) / d] as const;
+  };
+
+  it('leaves the pose alone at rest', () => {
+    expect(swingLimb(defaultPose(), 'arm', 'L', 0)).toEqual(defaultPose());
+    expect(swingLimb(defaultPose(), 'leg', 'R', 0)).toEqual(defaultPose());
+  });
+
+  it('pivots on the top joint and carries the rest of the limb rigidly', () => {
+    const base = defaultPose();
+    for (const t of [-1, -0.4, 0.3, 1]) {
+      const arm = swingLimb(base, 'arm', 'L', t);
+      expect(dist(at(arm, 'shoulderL'), at(base, 'shoulderL'))).toBeLessThan(1e-6);
+      // Bone lengths hold: upper arm and forearm both.
+      expect(dist(at(arm, 'shoulderL'), at(arm, 'elbowL')))
+        .toBeCloseTo(dist(at(base, 'shoulderL'), at(base, 'elbowL')), 6);
+      expect(dist(at(arm, 'elbowL'), at(arm, 'wristL')))
+        .toBeCloseTo(dist(at(base, 'elbowL'), at(base, 'wristL')), 6);
+      const leg = swingLimb(base, 'leg', 'R', t);
+      expect(dist(at(leg, 'hipR'), at(base, 'hipR'))).toBeLessThan(1e-6);
+    }
+  });
+
+  it('forward brings the far end toward the viewer, back takes it away, a quarter turn at the ends', () => {
+    const base = defaultPose();
+    const z0 = at(base, 'ankleL')[2];
+    expect(at(swingLimb(base, 'leg', 'L', 0.5), 'ankleL')[2]).toBeGreaterThan(z0 + 1);
+    expect(at(swingLimb(base, 'leg', 'L', -0.5), 'ankleL')[2]).toBeLessThan(z0 - 1);
+    // At the forward end the limb points along the viewer's line of sight
+    // (LIMB_SWING_RANGE / 2 of turn from a limb lying in the view plane).
+    const flat = dir(base, 'hipL', 'ankleL');
+    expect(Math.abs(flat[2])).toBeLessThan(0.2);
+    const tipped = swingLimb(base, 'leg', 'L', 1);
+    const d = dir(tipped, 'hipL', 'ankleL');
+    const before = Math.asin(flat[2]);
+    expect(Math.asin(d[2]) - before).toBeCloseTo(LIMB_SWING_RANGE / 2, 1);
+  });
+
+  it('touches only its own limb', () => {
+    const base = defaultPose();
+    const swung = swingLimb(base, 'arm', 'R', 0.7);
+    for (const id of ['shoulderL', 'elbowL', 'wristL', 'hipL', 'kneeL', 'ankleL', 'hipR', 'kneeR'] as JointId[]) {
+      expect(dist(at(swung, id), at(base, id))).toBeLessThan(1e-6);
+    }
+  });
+
+  it('reads "toward the viewer" through the view the figure is shown in', () => {
+    // A figure turned a quarter round (view yaw): the viewer's line of
+    // sight is along rig x now, so the swing carries the far end along x.
+    const base = defaultPose();
+    const yaw = Math.PI / 2;
+    const q = turnQuat(yaw);
+    const depth = (p: ReturnType<typeof defaultPose>) => {
+      const [x, y, z] = at(p, 'ankleL');
+      return quatRotate(q, x, y, z)[2];
+    };
+    expect(depth(swingLimb(base, 'leg', 'L', 0.5, yaw))).toBeGreaterThan(depth(base) + 1);
+  });
+
+  it('ADDS its turn to what the limb holds, so 0 is “as you left it”', () => {
+    const reached = swingLimb(defaultPose(), 'arm', 'L', 0.4);
+    expect(poseEquals(swingLimb(reached, 'arm', 'L', 0), reached)).toBe(true);
   });
 });
