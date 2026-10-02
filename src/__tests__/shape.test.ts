@@ -8,7 +8,8 @@
 
 import {
   BALL_BEND_BACK_RANGE, BALL_BEND_RANGE,
-  FINGER_COLUMN, FIST_RANGE, FOOT_FLAT_AT, HAND_STRAIGHT_AT, HEAD_COLUMN, HEAD_RANGE, SPINE_BRANCH,
+  FINGER_COLUMN, FIST_RANGE, FOOT_BACK_RANGE, FOOT_FLAT_AT, HAND_STRAIGHT_AT, HEAD_COLUMN, HEAD_RANGE,
+  SPINE_BRANCH,
   SPINE_COLUMN, SPINE_RANGE, curlHand,
   bendBall, bendWrist, flexFoot, rotateRig, shapeHead, shapeSpine, centered, spreadHand,
   twistAnkle, twistWrist, TWIST_RANGE, POLE_RANGE, poleChain, LIMB_SWING_RANGE, swingLimb,
@@ -124,7 +125,10 @@ describe('flexFoot', () => {
   it('bends the foot BACK below the flat point — the toes lift at the slider’s floor', () => {
     // Below FOOT_FLAT_AT the same turn runs backwards: the toe rises
     // above the rest sole and the heel drops under it, a foot braced on
-    // its heel. A third as far as the point, about what an ankle gives.
+    // its heel. TWO THIRDS as far as the point (FOOT_BACK_RANGE), which
+    // the floor was first cut at a third of — enough to lift the toes,
+    // but barely (CozyJournal bug report f17b6bf1).
+    expect(FOOT_BACK_RANGE).toBe(2 / 3);
     const w0 = solveWorld(defaultPose());
     const back = solveWorld(flexFoot(defaultPose(), 'L', 0));
     expect(back.toeL.y).toBeGreaterThan(w0.toeL.y + 0.5);
@@ -134,8 +138,20 @@ describe('flexFoot', () => {
       Math.hypot(s.toeL.x - s.heelL.x, s.toeL.z - s.heelL.z),
     );
     const pointed = pitch(solveWorld(flexFoot(defaultPose(), 'L', 1)));
-    expect(pitch(back)).toBeLessThan(-0.2);
-    expect(Math.abs(pitch(back))).toBeLessThan(pointed / 2);
+    expect(pitch(back)).toBeLessThan(-0.6);
+    // Past half the point's turn now, and still short of it: a foot
+    // flexes up less than it points, but not by as little as before.
+    expect(Math.abs(pitch(back))).toBeGreaterThan(pointed / 2);
+    expect(Math.abs(pitch(back))).toBeLessThan(pointed);
+    // The reach the floor USED to have is partway up the back half now,
+    // which is what widening the range means: the same slider, farther.
+    const oldFloor = pitch(solveWorld(flexFoot(defaultPose(), 'L', FOOT_FLAT_AT / 2)));
+    expect(oldFloor).toBeLessThan(-0.2);
+    expect(pitch(back)).toBeLessThan(oldFloor * 2 + 0.05);
+    // Monotonic across the whole bar: every step up lifts the pitch.
+    const ramp = [0, 0.1, FOOT_FLAT_AT, 0.5, 1]
+      .map((t) => pitch(solveWorld(flexFoot(defaultPose(), 'L', t))));
+    expect(ramp).toEqual([...ramp].sort((a, b) => a - b));
     // The same two joints, the other way: nothing else is written.
     const angles = flexFoot(defaultPose(), 'L', 0).angles;
     expect(Object.keys(angles).sort()).toEqual(['ballL', 'heelL']);

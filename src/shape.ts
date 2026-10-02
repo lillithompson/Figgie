@@ -155,13 +155,24 @@ const POINT_BALL = 0.2;
  *  up, not at the very bottom. Below it the foot bends BACK past flat,
  *  the toes drawn up toward the shin the way a foot braced on its heel
  *  does; stopped dead at flat, the slider could point a foot but never
- *  lift its toes (CozyJournal bug report bb968348). The back travel is
- *  the point's turn run the other way and a third as far, which is about
- *  what an ankle gives: a foot flexes up far less than it points. A
- *  host's REST value for the slider is this number, not zero (editor-ui's
- *  RIG_SLIDER_REST), or an untouched bar would misreport the figure — the
- *  same bargain {@link HAND_STRAIGHT_AT} strikes for the curl. */
+ *  lift its toes (CozyJournal bug report bb968348). How far that floor
+ *  bends is {@link FOOT_BACK_RANGE}, kept apart from this number on
+ *  purpose: a host's REST value for the slider is this one, not zero
+ *  (editor-ui's RIG_SLIDER_REST), or an untouched bar would misreport the
+ *  figure — the same bargain {@link HAND_STRAIGHT_AT} strikes for the
+ *  curl — so widening the bend must not move it. */
 export const FOOT_FLAT_AT = 0.25;
+
+/** How far the slider's FLOOR bends the foot back, as a fraction of the
+ *  point's own turn: at 1 the toes would lift as far as a full point
+ *  drops them. Two thirds — widened from the third it was first cut at,
+ *  which could lift the toes but barely (CozyJournal bug report
+ *  f17b6bf1). Still short of the point, because a foot does flex up less
+ *  than it points, and still the shape the back half is for: toes peeled
+ *  up off the ground, the foot braced on its heel. The sibling
+ *  {@link BALL_BEND_BACK_RANGE} makes the same trade for the ball's own
+ *  slider, and goes further still. */
+export const FOOT_BACK_RANGE = 2 / 3;
 
 function clamp01(v: number): number {
   return !Number.isFinite(v) ? 0 : v < 0 ? 0 : v > 1 ? 1 : v;
@@ -392,7 +403,8 @@ function footAxis(side: Side): [number, number, number] {
 /**
  * Flex one foot: `t` {@link FOOT_FLAT_AT} = flat (the sole level, the
  * rest pose), 1 = toes fully pointed (the foot extends in line with the
- * shin), 0 = the foot bent BACK past flat, toes drawn up toward the shin
+ * shin), 0 = the foot bent BACK past flat by {@link FOOT_BACK_RANGE} of
+ * that same turn, toes drawn up toward the shin
  * — the slider travels toward the point from a rest a quarter of the way
  * up, and the floor below that rest is the same turn run backwards.
  * Writes only that foot's heel and ball joints — the heel pitches the
@@ -402,10 +414,17 @@ function footAxis(side: Side): [number, number, number] {
  * that bend while this slider points it.
  */
 export function flexFoot(pose: FiggiePose, side: Side, t: number): FiggiePose {
-  // The travel measured from FLAT rather than from the slider's floor: 1
-  // at a full point, 0 at FOOT_FLAT_AT, and negative below it (−⅓ at the
-  // floor) — the same turn run backwards, which lifts the toes.
-  const point = (clamp01(t) - FOOT_FLAT_AT) / (1 - FOOT_FLAT_AT);
+  // The travel measured from FLAT rather than from the slider's floor,
+  // and each side of flat normalised against its OWN span: +1 at a full
+  // point, 0 at FOOT_FLAT_AT, and down to −FOOT_BACK_RANGE at the floor
+  // — the same turn run backwards, which lifts the toes. Two ramps
+  // rather than one because the rest sits a quarter of the way up: a
+  // single ramp tied the back reach to where the rest sat, so widening
+  // the bend meant moving the rest, which a host's slider reads.
+  const span = clamp01(t) - FOOT_FLAT_AT;
+  const point = span >= 0
+    ? span / (1 - FOOT_FLAT_AT)
+    : (span / FOOT_FLAT_AT) * FOOT_BACK_RANGE;
   const axis = footAxis(side);
   const angles: Angles = { ...pose.angles };
   setAngle(angles, `heel${side}` as JointId, axis, POINT_ANKLE * point);
