@@ -8,7 +8,7 @@
 
 import {
   BALL_BEND_BACK_RANGE, BALL_BEND_RANGE,
-  FINGER_COLUMN, FIST_RANGE, HAND_STRAIGHT_AT, HEAD_COLUMN, HEAD_RANGE, SPINE_BRANCH,
+  FINGER_COLUMN, FIST_RANGE, FOOT_FLAT_AT, HAND_STRAIGHT_AT, HEAD_COLUMN, HEAD_RANGE, SPINE_BRANCH,
   SPINE_COLUMN, SPINE_RANGE, curlHand,
   bendBall, bendWrist, flexFoot, rotateRig, shapeHead, shapeSpine, centered, spreadHand,
   twistAnkle, twistWrist, TWIST_RANGE, POLE_RANGE, poleChain, LIMB_SWING_RANGE, swingLimb,
@@ -109,13 +109,38 @@ describe('curlHand', () => {
 });
 
 describe('flexFoot', () => {
-  it('is flat (the rest foot) at 0 and pointed at 1 — the slider travels toward the point', () => {
-    expect(poseEquals(flexFoot(defaultPose(), 'L', 0), defaultPose())).toBe(true);
+  it('is flat (the rest foot) at FOOT_FLAT_AT and pointed at 1 — the slider travels toward the point', () => {
+    // A quarter of the way up, not at the floor: the rest a host puts
+    // the slider at, so an untouched bar reads back the figure.
+    expect(FOOT_FLAT_AT).toBe(0.25);
+    expect(poseEquals(flexFoot(defaultPose(), 'L', FOOT_FLAT_AT), defaultPose())).toBe(true);
     const w0 = solveWorld(defaultPose());
     const w = solveWorld(flexFoot(defaultPose(), 'L', 1));
     // A pointed toe drops below the rest sole and reaches further out.
     expect(w.toeL.y).toBeLessThan(w0.toeL.y - 2);
     expect(w.ankleL.y).toBeCloseTo(w0.ankleL.y, 9); // the ankle holds
+  });
+
+  it('bends the foot BACK below the flat point — the toes lift at the slider’s floor', () => {
+    // Below FOOT_FLAT_AT the same turn runs backwards: the toe rises
+    // above the rest sole and the heel drops under it, a foot braced on
+    // its heel. A third as far as the point, about what an ankle gives.
+    const w0 = solveWorld(defaultPose());
+    const back = solveWorld(flexFoot(defaultPose(), 'L', 0));
+    expect(back.toeL.y).toBeGreaterThan(w0.toeL.y + 0.5);
+    expect(back.ankleL.y).toBeCloseTo(w0.ankleL.y, 9); // the ankle holds
+    const pitch = (s: typeof w0) => Math.atan2(
+      s.heelL.y - s.toeL.y,
+      Math.hypot(s.toeL.x - s.heelL.x, s.toeL.z - s.heelL.z),
+    );
+    const pointed = pitch(solveWorld(flexFoot(defaultPose(), 'L', 1)));
+    expect(pitch(back)).toBeLessThan(-0.2);
+    expect(Math.abs(pitch(back))).toBeLessThan(pointed / 2);
+    // The same two joints, the other way: nothing else is written.
+    const angles = flexFoot(defaultPose(), 'L', 0).angles;
+    expect(Object.keys(angles).sort()).toEqual(['ballL', 'heelL']);
+    // …and below the floor is the floor: the travel is clamped, not open.
+    expect(poseEquals(flexFoot(defaultPose(), 'L', -3), flexFoot(defaultPose(), 'L', 0))).toBe(true);
   });
 
   it('points down its own splayed line, not sideways', () => {
